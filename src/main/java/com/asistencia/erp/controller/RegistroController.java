@@ -12,7 +12,6 @@ import java.time.LocalDate;
 
 @RestController
 @RequestMapping("/api/registro")
-@CrossOrigin("*")
 @RequiredArgsConstructor
 public class RegistroController {
 

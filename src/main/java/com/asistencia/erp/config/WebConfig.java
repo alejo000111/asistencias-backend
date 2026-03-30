@@ -8,15 +8,14 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 
-    // Lee la variable, si no existe usa localhost por defecto
     @Value("${cors.allowed-origins:http://localhost:5173}")
     private String allowedOrigins;
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**")
-                .allowedOriginPatterns(allowedOrigins.split(",")) // <-- AQUÍ ESTÁ EL CAMBIO MÁGICO
-                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
-                .allowCredentials(true);
+                .allowedOrigins(allowedOrigins.split(","))
+                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS");
+        // Eliminamos la línea de allowCredentials
     }
 }

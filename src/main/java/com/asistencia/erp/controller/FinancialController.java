@@ -20,8 +20,7 @@ import java.util.List;
 @RestController
 //URL predefinida para el controlador
 @RequestMapping("/api/finanzas")
-//Permite que el frontend (Vue 3) se conecte sin bloqueos de seguridad
-@CrossOrigin("*")
+//Permite que el frontend (Vue 3) se conecte sin bloqueos de seguridads
 @RequiredArgsConstructor
 public class FinancialController {
     //Se invoca el servicio
