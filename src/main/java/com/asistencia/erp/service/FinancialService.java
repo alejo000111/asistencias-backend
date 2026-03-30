@@ -24,9 +24,9 @@ public class FinancialService {
 
     //PRECIOS CONFIGURABLES
     //EDITAR SI CAMBIAN PRECIOS
-    private final BigDecimal PRECIO_GRUPAL = new BigDecimal("40000.00");
-    private final BigDecimal PRECIO_MEDIA_GRUPAL = new BigDecimal("30000.00");
-    private final BigDecimal PRECIO_PERSONALIZADA = new BigDecimal("50000.00");
+    private final BigDecimal PRECIO_GRUPAL = new BigDecimal("35000.00");
+    private final BigDecimal PRECIO_MEDIA_GRUPAL = new BigDecimal("27000.00");
+    private final BigDecimal PRECIO_PERSONALIZADA = new BigDecimal("45000.00");
 
     //Para evitar errores al escribir, los tipos de clases van en un Enum
     public enum TipoClase {
