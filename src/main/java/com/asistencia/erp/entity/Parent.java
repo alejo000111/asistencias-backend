@@ -1,6 +1,7 @@
 package com.asistencia.erp.entity;
 
 import jakarta.persistence.*;
+import jakarta.validation.constraints.Min;
 import lombok.*;
 import java.math.BigDecimal;
 import java.util.List;
@@ -26,6 +27,7 @@ public class Parent {
     private String estado = "ACTIVO";
 
     //Dinero abono del padre o madre
+    @Min(0)
     @Column(name = "saldo_abono", precision = 10, scale = 2)
     private BigDecimal saldoAbono = BigDecimal.ZERO;
 

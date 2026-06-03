@@ -56,11 +56,18 @@ public class FinancialService {
 
         //4.Recorrer una por una las clases pendientes
         for (Attendance clase: clasesPendientes) {
-            //Solo va a descontar si el saldo es mayor o igual a la deuda
-            //No vamos a tener "Clases medias pagas"
-            if (parent.getSaldoAbono().compareTo(clase.getPrecioCobrado()) >= 0) {
-                //Si alcanza, restamos el precio de la clase del salgo del padre
-                parent.setSaldoAbono(parent.getSaldoAbono().subtract(clase.getPrecioCobrado()));
+            BigDecimal saldoActual = parent.getSaldoAbono();
+
+            // Si ya no hay saldo, salimos del ciclo
+            if (saldoActual.compareTo(BigDecimal.ZERO) <= 0) {
+                break;
+            }
+
+            BigDecimal costoClase = clase.getPrecioCobrado();
+
+            if (saldoActual.compareTo(costoClase) >= 0) {
+                // CASO 1: Saldo alcanza para pagar la clase completa
+                parent.setSaldoAbono(saldoActual.subtract(costoClase));
 
                 //Marcar la clase pagada y guardamos
                 clase.setClasePaga(true);
@@ -70,11 +77,26 @@ public class FinancialService {
                 FinancialLog log = new FinancialLog();
                 log.setParent(parent);
                 log.setFecha(LocalDateTime.now());
-                log.setMonto(clase.getPrecioCobrado()); //Acá se guarda cuánto fue el cobro
+                log.setMonto(costoClase);
                 log.setTipoMovimiento(FinancialLog.MovementType.USO_ABONO_CLASE);
                 log.setMetodoPago(FinancialLog.PaymentMethod.ABONO);
 
                 financialLogRepository.save(log);
+            } else {
+                // CASO 2: Saldo parcial > 0 pero no alcanza para la clase
+                // Consumimos todo el saldo disponible y salimos del ciclo
+                parent.setSaldoAbono(BigDecimal.ZERO);
+
+                // Registramos el uso parcial en la bitácora
+                FinancialLog log = new FinancialLog();
+                log.setParent(parent);
+                log.setFecha(LocalDateTime.now());
+                log.setMonto(saldoActual);
+                log.setTipoMovimiento(FinancialLog.MovementType.USO_ABONO_CLASE);
+                log.setMetodoPago(FinancialLog.PaymentMethod.ABONO);
+
+                financialLogRepository.save(log);
+                break;
             }
         }
         //5.Guardar al padre con su nuevo saldo actualizado
@@ -206,7 +228,9 @@ public class FinancialService {
         Parent parent = log.getParent();
 
         // Restar el monto del saldo del padre (revertir el ingreso)
-        parent.setSaldoAbono(parent.getSaldoAbono().subtract(log.getMonto()));
+        // Nunca permitir que el saldo baje de 0
+        BigDecimal nuevoSaldo = parent.getSaldoAbono().subtract(log.getMonto());
+        parent.setSaldoAbono(nuevoSaldo.compareTo(BigDecimal.ZERO) > 0 ? nuevoSaldo : BigDecimal.ZERO);
         parentRepository.save(parent);
 
         // Eliminar el registro financiero
