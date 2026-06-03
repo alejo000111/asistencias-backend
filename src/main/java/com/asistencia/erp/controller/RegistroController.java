@@ -8,7 +8,10 @@ import com.asistencia.erp.repository.AttendanceRepository;
 import com.asistencia.erp.repository.FinancialLogRepository;
 import com.asistencia.erp.repository.ParentRepository;
 import com.asistencia.erp.repository.StudentRepository;
+import com.asistencia.erp.service.FinancialService;
 import lombok.RequiredArgsConstructor;
+
+import java.math.BigDecimal;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -17,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class RegistroController {
 
+    private final FinancialService financialService;
     private final ParentRepository parentRepository;
     private final StudentRepository studentRepository;
     private final AttendanceRepository attendanceRepository;

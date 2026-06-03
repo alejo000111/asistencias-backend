@@ -31,6 +31,8 @@ public class PublicPortalController {
         Parent parent = parentRepository.findBySecretToken(secretToken)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Token inválido"));
 
+        List<Attendance> deudas = attendanceRepository.findUnpaidAttendancesByParentIdFIFO(parent.getId());
+
         BigDecimal deudaTotal = BigDecimal.ZERO;
         if (deudas != null) {
             for (Attendance att : deudas) {
@@ -43,8 +45,6 @@ public class PublicPortalController {
                 .stream()
                 .limit(10)
                 .toList();
-
-        List<Attendance> deudas = attendanceRepository.findUnpaidAttendancesByParentIdFIFO(parent.getId());
 
         Map<String, Object> response = new HashMap<>();
         response.put("parent", parent);
