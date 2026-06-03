@@ -152,4 +152,27 @@ public class FinancialService {
         //5. Motor FIFO de cobro automático
         procesarPagosPendientes(student.getParent().getId());
     }
+
+    @Transactional
+    public void eliminarAbono(Long logId) {
+        FinancialLog log = financialLogRepository.findById(logId)
+                .orElseThrow(() -> new RuntimeException("Registro financiero no encontrado"));
+
+        // Solo permitimos eliminar INGRESO_ABONO (no USO_ABONO_CLASE)
+        if (log.getTipoMovimiento() != FinancialLog.MovementType.INGRESO_ABONO) {
+            throw new RuntimeException("Solo se pueden eliminar abonos de ingreso directo");
+        }
+
+        Parent parent = log.getParent();
+
+        // Restar el monto del saldo del padre (revertir el ingreso)
+        parent.setSaldoAbono(parent.getSaldoAbono().subtract(log.getMonto()));
+        parentRepository.save(parent);
+
+        // Eliminar el registro financiero
+        financialLogRepository.delete(log);
+
+        // Re-ejecutar FIFO por si se liberaron fondos para pagos previos
+        procesarPagosPendientes(parent.getId());
+    }
 }

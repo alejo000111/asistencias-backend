@@ -141,6 +141,21 @@ public class FinancialController {
         return org.springframework.http.ResponseEntity.ok(deudas);
     }
 
+    //*************************************
+    //PUERTA 7: URL para eliminar un abono/ingreso equivocado
+    //METODO: DELETE
+    //Regla: Resta el monto del saldoAbono del Parent y re-ejecuta FIFO
+    //*************************************
+    @DeleteMapping("/abono/{id}")
+    public ResponseEntity<?> eliminarAbono(@PathVariable Long id) {
+        try {
+            financialService.eliminarAbono(id);
+            return ResponseEntity.ok("Abono eliminado correctamente");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
     @DeleteMapping("/deportista/{id}")
     public ResponseEntity<?> eliminarDeportista(@PathVariable Long id) {
         try {
