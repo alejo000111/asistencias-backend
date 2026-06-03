@@ -25,4 +25,6 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
            "WHERE s.parent.id = :parentId AND a.clasePaga = false " +
            "ORDER BY a.fecha DESC")
     List<Attendance> findUnpaidByParentIdOrderByFechaDesc(@Param("parentId") Long parentId);
+
+    List<Attendance> findTop3ByStudentParentIdOrderByFechaDesc(Long parentId);
 }
