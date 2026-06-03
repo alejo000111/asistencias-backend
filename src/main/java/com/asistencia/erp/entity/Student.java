@@ -23,6 +23,11 @@ public class Student {
     @JsonIgnore //Para que no haga el efecto espejo en el GET de postman
     private Parent parent;
 
+    //Relación: Muchos estudiantes pertenecen a una sede
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "sede_id")
+    private Sede sede;
+
     @Column(name = "nombre_completo", nullable = false)
     private String nombreCompleto;
 

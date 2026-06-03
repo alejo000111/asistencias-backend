@@ -9,4 +9,8 @@ import java.util.List;
 public interface StudentRepository extends JpaRepository<Student, Long> {
     //Buscar a los hijos de un padre especifico dependiendo de su estado (ACTIVO/RETIRADO)
     List<Student> findByParentIdAndEstado(Long parentId, Student.StudentStatus estado);
+
+    List<Student> findBySedeIsNull();
+
+    List<Student> findBySedeIdIn(List<Long> sedeIds);
 }
