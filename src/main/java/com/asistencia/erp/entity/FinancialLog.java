@@ -4,7 +4,6 @@ import jakarta.persistence.*;
 import lombok.*;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 
 @Entity
 @Table(name = "financial_logs")
@@ -18,7 +17,7 @@ public class FinancialLog {
 
     //Relación los registros financieros van atados al padre o madre (el que paga)
     @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "parent_id", nullable = false)
+    @JoinColumn(name = "parent_id", nullable = true)
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties({"students", "hibernateLazyInitializer", "handler"})
     private Parent parent;
 

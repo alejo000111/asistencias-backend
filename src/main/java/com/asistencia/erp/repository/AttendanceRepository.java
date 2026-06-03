@@ -17,5 +17,12 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
             "WHERE s.parent.id = :parentId AND a.clasePaga = false " +
             "ORDER BY a.fecha ASC, s.nombreCompleto ASC")
     List<Attendance> findUnpaidAttendancesByParentIdFIFO(@Param("parentId") Long parentId);
+
     List<Attendance> findByStudentId(Long studentId);
+
+    @Query("SELECT a FROM Attendance a " +
+           "JOIN a.student s " +
+           "WHERE s.parent.id = :parentId AND a.clasePaga = false " +
+           "ORDER BY a.fecha DESC")
+    List<Attendance> findUnpaidByParentIdOrderByFechaDesc(@Param("parentId") Long parentId);
 }

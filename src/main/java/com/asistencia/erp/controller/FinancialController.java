@@ -10,29 +10,20 @@ import com.asistencia.erp.repository.ParentRepository;
 import com.asistencia.erp.repository.StudentRepository;
 import com.asistencia.erp.service.FinancialService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.util.List;
 
-//Se le avisa a Spring Boot que esta clase recibirá peticiones web
 @RestController
-//URL predefinida para el controlador
 @RequestMapping("/api/finanzas")
-//Permite que el frontend (Vue 3) se conecte sin bloqueos de seguridads
 @RequiredArgsConstructor
 public class FinancialController {
-    //Se invoca el servicio
-    @Autowired
+
     private final FinancialService financialService;
-    @Autowired
     private final ParentRepository parentRepository;
-    @Autowired
     private final FinancialLogRepository financialLogRepository;
-    @Autowired
     private final AttendanceRepository attendanceRepository;
-    @Autowired
     private final StudentRepository studentRepository;
     //*************************************
     //PUERTA 1: URL para registrar asistencias
@@ -45,14 +36,16 @@ public class FinancialController {
             @RequestParam String tipoClase,
             @RequestParam boolean esMediaClase,
             @RequestParam(required = false) String nivel,
-            @RequestParam(required = false) String fecha) {
+            @RequestParam(required = false) String fecha,
+            @RequestParam(required = false) BigDecimal precioPersonalizado) {
 
         financialService.registrarAsistencia(
                 studentId,
                 FinancialService.TipoClase.valueOf(tipoClase),
                 esMediaClase,
                 nivel,
-                fecha
+                fecha,
+                precioPersonalizado
         );
         return "Asistencia registrada";
     }
@@ -87,14 +80,13 @@ public class FinancialController {
 
     @GetMapping("/historial/{parentId}")
     public org.springframework.http.ResponseEntity<?> obtenerHistorialPorPadre(@PathVariable Long parentId) {
-        // Traemos todos, filtramos por el padre, ordenamos del más nuevo al más viejo, y cortamos en 10
-        java.util.List<com.asistencia.erp.entity.FinancialLog> historialPadre = financialLogRepository.findAll().stream()
-                .filter(log -> log.getParent() != null && log.getParent().getId().equals(parentId))
-                .sorted((a, b) -> b.getId().compareTo(a.getId()))
+        List<com.asistencia.erp.entity.FinancialLog> historialPadre = financialLogRepository
+                .findByParentIdOrderByFechaDesc(parentId)
+                .stream()
                 .limit(10)
-                .collect(java.util.stream.Collectors.toList());
+                .toList();
 
-        return org.springframework.http.ResponseEntity.ok(historialPadre);
+        return ResponseEntity.ok(historialPadre);
     }
 
     //*************************************
@@ -130,15 +122,11 @@ public class FinancialController {
     //METODO: GET
     //*************************************
     @GetMapping("/deudas/{parentId}")
-    public org.springframework.http.ResponseEntity<?> obtenerDeudasPadre(@PathVariable Long parentId) {
-        java.util.List<com.asistencia.erp.entity.Attendance> deudas = attendanceRepository.findAll().stream()
-                .filter(a -> a.getStudent() != null && a.getStudent().getParent() != null)
-                .filter(a -> a.getStudent().getParent().getId().equals(parentId))
-                .filter(a -> !a.getClasePaga()) // Filtramos solo las NO pagadas
-                .sorted((a, b) -> b.getFecha().compareTo(a.getFecha())) // Más recientes primero
-                .collect(java.util.stream.Collectors.toList());
+    public ResponseEntity<?> obtenerDeudasPadre(@PathVariable Long parentId) {
+        List<com.asistencia.erp.entity.Attendance> deudas = attendanceRepository
+                .findUnpaidByParentIdOrderByFechaDesc(parentId);
 
-        return org.springframework.http.ResponseEntity.ok(deudas);
+        return ResponseEntity.ok(deudas);
     }
 
     //*************************************

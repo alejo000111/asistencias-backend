@@ -1,14 +1,16 @@
 package com.asistencia.erp.controller;
 
+import com.asistencia.erp.entity.Attendance;
+import com.asistencia.erp.entity.FinancialLog;
 import com.asistencia.erp.entity.Parent;
 import com.asistencia.erp.entity.Student;
+import com.asistencia.erp.repository.AttendanceRepository;
+import com.asistencia.erp.repository.FinancialLogRepository;
 import com.asistencia.erp.repository.ParentRepository;
 import com.asistencia.erp.repository.StudentRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
-import java.math.BigDecimal;
-import java.time.LocalDate;
 
 @RestController
 @RequestMapping("/api/registro")
@@ -17,6 +19,8 @@ public class RegistroController {
 
     private final ParentRepository parentRepository;
     private final StudentRepository studentRepository;
+    private final AttendanceRepository attendanceRepository;
+    private final FinancialLogRepository financialLogRepository;
 
     @PostMapping("/padre")
     public String registrarPadre(@RequestParam String nombre, @RequestParam String apellido, @RequestParam String telefono) {
@@ -35,9 +39,10 @@ public class RegistroController {
             @RequestParam String apellido,
             @RequestParam Integer edad,
             @RequestParam String fechaNacimiento,
-            @RequestParam String nivel) { // <-- NUEVO
+            @RequestParam String nivel) {
 
-        Parent padre = parentRepository.findById(parentId).orElseThrow();
+        Parent padre = parentRepository.findById(parentId)
+                .orElseThrow(() -> new RuntimeException("Padre no encontrado con ID: " + parentId));
         Student deportista = new Student();
         deportista.setParent(padre);
         deportista.setNombreCompleto(nombre.trim() + " " + apellido.trim());
@@ -57,12 +62,13 @@ public class RegistroController {
             @RequestParam String estado,
             @RequestParam String nivel) {
 
-        Student deportista = studentRepository.findById(id).orElseThrow();
+        Student deportista = studentRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Deportista no encontrado con ID: " + id));
         deportista.setNombreCompleto(nombreCompleto.trim());
         deportista.setEdad(edad);
         deportista.setFechaNacimiento(java.time.LocalDate.parse(fechaNacimiento));
         deportista.setEstado(Student.StudentStatus.valueOf(estado));
-        deportista.setNivel(nivel); // <-- NUEVO
+        deportista.setNivel(nivel);
         studentRepository.save(deportista);
         return "Deportista actualizado";
     }
@@ -73,7 +79,8 @@ public class RegistroController {
             @RequestParam String nombreCompleto,
             @RequestParam String telefono,
             @RequestParam String estado) {
-        Parent padre = parentRepository.findById(id).orElseThrow();
+        Parent padre = parentRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Padre no encontrado con ID: " + id));
         padre.setNombreCompleto(nombreCompleto.trim());
         padre.setTelefono(telefono.trim());
         padre.setEstado(estado);
@@ -82,30 +89,83 @@ public class RegistroController {
     }
 
     //*************************************
-    // URL para eliminar un Padre completo (y sus hijos)
+    // OPCIÓN 1: ELIMINAR (hard-delete)
+    // Borra al padre y estudiantes de la BD, pero conserva el historial
+    // orfanando las referencias en asistencias y financial_logs.
     //*************************************
     @DeleteMapping("/padre/{id}")
-    public org.springframework.http.ResponseEntity<?> eliminarPadre(@PathVariable Long id) {
+    public ResponseEntity<?> eliminarPadre(@PathVariable Long id) {
         try {
-            // Nota: Dependiendo de cómo tengas tu base de datos,
-            // esto borrará al padre y a sus hijos automáticamente.
-            parentRepository.deleteById(id);
-            return org.springframework.http.ResponseEntity.ok("Padre eliminado correctamente");
+            financialService.eliminarFamilia(id);
+        return ResponseEntity.ok("Familia eliminada completamente. El historial se conserva.");
         } catch (Exception e) {
-            return org.springframework.http.ResponseEntity.badRequest().body("Error al eliminar el padre. Verifica que no tenga asistencias o pagos amarrados.");
+            return ResponseEntity.badRequest().body("Error: " + e.getMessage());
         }
     }
 
     //*************************************
-    // URL para eliminar solo un Deportista
+    // OPCIÓN 2: INACTIVAR (soft-delete)
+    // Marca al padre como INACTIVO y a los hijos como RETIRADO.
+    // Siguen existiendo en BD pero no aparecen en clientes activos.
+    //*************************************
+    @PostMapping("/padre/{id}/inactivar")
+    public ResponseEntity<?> inactivarPadre(@PathVariable Long id) {
+        try {
+            Parent parent = parentRepository.findById(id)
+                    .orElseThrow(() -> new RuntimeException("Padre no encontrado"));
+
+            parent.setEstado("INACTIVO");
+            parentRepository.save(parent);
+
+            if (parent.getStudents() != null) {
+                for (Student student : parent.getStudents()) {
+                    student.setEstado(Student.StudentStatus.RETIRADO);
+                    studentRepository.save(student);
+                }
+            }
+
+            return ResponseEntity.ok("Familia marcada como inactiva. Puedes reactivarla desde Clientes Inactivos.");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("Error: " + e.getMessage());
+        }
+    }
+
+    //*************************************
+    // OPCIÓN 1: ELIMINAR deportista (hard-delete)
     //*************************************
     @DeleteMapping("/deportista/{id}")
-    public org.springframework.http.ResponseEntity<?> eliminarDeportista(@PathVariable Long id) {
+    public ResponseEntity<?> eliminarDeportista(@PathVariable Long id) {
         try {
-            studentRepository.deleteById(id);
-            return org.springframework.http.ResponseEntity.ok("Deportista eliminado correctamente");
+            Student student = studentRepository.findById(id)
+                    .orElseThrow(() -> new RuntimeException("Deportista no encontrado"));
+
+            // Orfanar asistencias
+            for (Attendance a : attendanceRepository.findByStudentId(id)) {
+                a.setNombreEstudianteHistorico(student.getNombreCompleto());
+                a.setStudent(null);
+                attendanceRepository.save(a);
+            }
+
+            studentRepository.delete(student);
+            return ResponseEntity.ok("Deportista eliminado. El historial de asistencias se conserva.");
         } catch (Exception e) {
-            return org.springframework.http.ResponseEntity.badRequest().body("Error al eliminar. Verifica que no tenga historial de asistencias.");
+            return ResponseEntity.badRequest().body("Error: " + e.getMessage());
+        }
+    }
+
+    //*************************************
+    // OPCIÓN 2: RETIRAR deportista (soft-delete)
+    //*************************************
+    @PostMapping("/deportista/{id}/retirar")
+    public ResponseEntity<?> retirarDeportista(@PathVariable Long id) {
+        try {
+            Student student = studentRepository.findById(id)
+                    .orElseThrow(() -> new RuntimeException("Deportista no encontrado"));
+            student.setEstado(Student.StudentStatus.RETIRADO);
+            studentRepository.save(student);
+            return ResponseEntity.ok("Deportista marcado como retirado. Se puede reactivar editándolo.");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("Error: " + e.getMessage());
         }
     }
 }

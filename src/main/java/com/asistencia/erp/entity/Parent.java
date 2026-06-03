@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.UUID;
 
 @Entity
 @Table(name = "parents")
@@ -28,7 +29,17 @@ public class Parent {
     @Column(name = "saldo_abono", precision = 10, scale = 2)
     private BigDecimal saldoAbono = BigDecimal.ZERO;
 
+    @Column(name = "secret_token", unique = true, length = 36)
+    private String secretToken;
+
     //Relación: Un padre tiene muchos hijos
     @OneToMany(mappedBy = "parent", cascade = CascadeType.ALL)
     private List<Student> students;
+
+    @PrePersist
+    public void prePersist() {
+        if (secretToken == null || secretToken.isBlank()) {
+            secretToken = UUID.randomUUID().toString();
+        }
+    }
 }

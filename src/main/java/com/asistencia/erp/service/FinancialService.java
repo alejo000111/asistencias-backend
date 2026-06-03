@@ -6,6 +6,7 @@ import com.asistencia.erp.entity.Parent;
 import com.asistencia.erp.entity.Student;
 import com.asistencia.erp.repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,11 +23,13 @@ public class FinancialService {
     private final FinancialLogRepository financialLogRepository;
     private final StudentRepository studentRepository;
 
-    //PRECIOS CONFIGURABLES
-    //EDITAR SI CAMBIAN PRECIOS
-    private final BigDecimal PRECIO_GRUPAL = new BigDecimal("40000.00");
-    private final BigDecimal PRECIO_MEDIA_GRUPAL = new BigDecimal("30000.00");
-    private final BigDecimal PRECIO_PERSONALIZADA = new BigDecimal("50000.00");
+    //PRECIOS CONFIGURABLES (desde application.properties)
+    @Value("${precios.grupal}")
+    private BigDecimal PRECIO_GRUPAL;
+    @Value("${precios.media-grupal}")
+    private BigDecimal PRECIO_MEDIA_GRUPAL;
+    @Value("${precios.personalizada}")
+    private BigDecimal PRECIO_PERSONALIZADA;
 
     //Para evitar errores al escribir, los tipos de clases van en un Enum
     public enum TipoClase {
@@ -110,14 +113,16 @@ public class FinancialService {
     }
 
     @Transactional
-    public void registrarAsistencia(Long studentId, TipoClase tipoClase, boolean esMediaClase, String nivel, String fecha) {
+    public void registrarAsistencia(Long studentId, TipoClase tipoClase, boolean esMediaClase, String nivel, String fecha, BigDecimal precioPersonalizado) {
         //1. Buscar al niño que vino a clase
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new RuntimeException("Estudiante no encontrado"));
 
-        //2. Lógica de precios
+        //2. Lógica de precios (precio personalizado tiene prioridad si se envió)
         BigDecimal precioFinal;
-        if (tipoClase == TipoClase.PERSONALIZADA) {
+        if (precioPersonalizado != null) {
+            precioFinal = precioPersonalizado;
+        } else if (tipoClase == TipoClase.PERSONALIZADA) {
             precioFinal = PRECIO_PERSONALIZADA;
         } else {
             if (esMediaClase) {
@@ -151,6 +156,41 @@ public class FinancialService {
 
         //5. Motor FIFO de cobro automático
         procesarPagosPendientes(student.getParent().getId());
+    }
+
+    @Transactional
+    public void eliminarFamilia(Long parentId) {
+        Parent parent = parentRepository.findById(parentId)
+                .orElseThrow(() -> new RuntimeException("Padre no encontrado con ID: " + parentId));
+
+        // 1. Orfanar asistencias de todos los hijos
+        if (parent.getStudents() != null) {
+            for (Student student : parent.getStudents()) {
+                List<Attendance> asistencias = attendanceRepository.findByStudentId(student.getId());
+                for (Attendance a : asistencias) {
+                    a.setNombreEstudianteHistorico(student.getNombreCompleto());
+                    a.setStudent(null);
+                    attendanceRepository.save(a);
+                }
+            }
+        }
+
+        // 2. Orfanar financial_logs del padre
+        List<FinancialLog> logs = financialLogRepository.findByParentIdOrderByFechaDesc(parentId);
+        for (FinancialLog log : logs) {
+            log.setParent(null);
+            financialLogRepository.save(log);
+        }
+
+        // 3. Eliminar estudiantes
+        if (parent.getStudents() != null) {
+            for (Student student : parent.getStudents()) {
+                studentRepository.delete(student);
+            }
+        }
+
+        // 4. Eliminar padre
+        parentRepository.delete(parent);
     }
 
     @Transactional
