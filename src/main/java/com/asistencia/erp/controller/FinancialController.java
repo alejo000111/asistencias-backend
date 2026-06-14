@@ -3,13 +3,17 @@ package com.asistencia.erp.controller;
 import com.asistencia.erp.entity.Attendance;
 import com.asistencia.erp.entity.FinancialLog;
 import com.asistencia.erp.entity.Parent;
+import com.asistencia.erp.entity.Sede;
 import com.asistencia.erp.entity.Student;
 import com.asistencia.erp.repository.AttendanceRepository;
 import com.asistencia.erp.repository.FinancialLogRepository;
 import com.asistencia.erp.repository.ParentRepository;
+import com.asistencia.erp.repository.SedeRepository;
 import com.asistencia.erp.repository.StudentRepository;
+import com.asistencia.erp.security.SecurityUtils;
 import com.asistencia.erp.service.FinancialService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
@@ -25,29 +29,39 @@ public class FinancialController {
     private final FinancialLogRepository financialLogRepository;
     private final AttendanceRepository attendanceRepository;
     private final StudentRepository studentRepository;
+    private final SedeRepository sedeRepository;
     //*************************************
     //PUERTA 1: URL para registrar asistencias
     //METODO: POST
     //Ruta final: http://localhost:8080/api/finanzas/asistencia
     //*************************************
     @PostMapping("/asistencia")
-    public String registrarAsistencia(
+    public ResponseEntity<?> registrarAsistencia(
             @RequestParam Long studentId,
             @RequestParam String tipoClase,
-            @RequestParam boolean esMediaClase,
             @RequestParam(required = false) String nivel,
             @RequestParam(required = false) String fecha,
-            @RequestParam(required = false) BigDecimal precioPersonalizado) {
+            @RequestParam(required = false) BigDecimal precioPersonalizado,
+            @RequestParam(required = false) Long sedeId) {
+
+        // Seguridad: si es EMPLEADO y la sede está inactiva, bloquear
+        if (SecurityUtils.isEmpleado() && sedeId != null) {
+            Sede sede = sedeRepository.findById(sedeId).orElse(null);
+            if (sede == null || Boolean.FALSE.equals(sede.getActiva())) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body("La sede actual está inactiva");
+            }
+        }
 
         financialService.registrarAsistencia(
                 studentId,
                 FinancialService.TipoClase.valueOf(tipoClase),
-                esMediaClase,
                 nivel,
                 fecha,
-                precioPersonalizado
+                precioPersonalizado,
+                sedeId
         );
-        return "Asistencia registrada";
+        return ResponseEntity.ok("Asistencia registrada");
     }
 
     //*************************************

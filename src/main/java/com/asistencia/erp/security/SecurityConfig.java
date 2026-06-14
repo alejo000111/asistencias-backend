@@ -46,6 +46,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/finanzas/abono").hasRole("ADMIN")
                 .requestMatchers("/api/finanzas/historial").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/api/finanzas/**").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.GET, "/api/sedes").hasAnyRole("ADMIN", "EMPLEADO")
                 .requestMatchers("/api/sedes/**").hasRole("ADMIN")
                 .requestMatchers("/api/empleados/**").hasRole("ADMIN")
                 // ADMIN o EMPLEADO
@@ -71,7 +72,7 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of("http://localhost:5173", "http://localhost:3000"));
+        config.setAllowedOriginPatterns(List.of("*"));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);

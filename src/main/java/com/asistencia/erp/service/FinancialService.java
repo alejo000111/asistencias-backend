@@ -3,6 +3,7 @@ package com.asistencia.erp.service;
 import com.asistencia.erp.entity.Attendance;
 import com.asistencia.erp.entity.FinancialLog;
 import com.asistencia.erp.entity.Parent;
+import com.asistencia.erp.entity.Sede;
 import com.asistencia.erp.entity.Student;
 import com.asistencia.erp.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -22,12 +23,11 @@ public class FinancialService {
     private final AttendanceRepository attendanceRepository;
     private final FinancialLogRepository financialLogRepository;
     private final StudentRepository studentRepository;
+    private final SedeRepository sedeRepository;
 
     //PRECIOS CONFIGURABLES (desde application.properties)
     @Value("${precios.grupal}")
     private BigDecimal PRECIO_GRUPAL;
-    @Value("${precios.media-grupal}")
-    private BigDecimal PRECIO_MEDIA_GRUPAL;
     @Value("${precios.personalizada}")
     private BigDecimal PRECIO_PERSONALIZADA;
 
@@ -69,6 +69,7 @@ public class FinancialService {
                 //Comprobante inmutable en la bitácora financiera
                 FinancialLog log = new FinancialLog();
                 log.setParent(parent);
+                log.setNombreClienteRespaldo(parent.getNombreCompleto());
                 log.setFecha(LocalDateTime.now());
                 log.setMonto(clase.getPrecioCobrado()); //Acá se guarda cuánto fue el cobro
                 log.setTipoMovimiento(FinancialLog.MovementType.USO_ABONO_CLASE);
@@ -97,6 +98,7 @@ public class FinancialService {
         //4. Crear el recibo histórico en la bitácora
         FinancialLog log = new FinancialLog();
         log.setParent(parent);
+        log.setNombreClienteRespaldo(parent.getNombreCompleto());
 
         // NUEVO: Usamos la fecha que eligió el usuario. Como la base de datos guarda Fecha y Hora, le ponemos la hora actual.
         log.setFecha(fechaAbono.atTime(java.time.LocalTime.now()));
@@ -113,7 +115,7 @@ public class FinancialService {
     }
 
     @Transactional
-    public void registrarAsistencia(Long studentId, TipoClase tipoClase, boolean esMediaClase, String nivel, String fecha, BigDecimal precioPersonalizado) {
+    public void registrarAsistencia(Long studentId, TipoClase tipoClase, String nivel, String fecha, BigDecimal precioPersonalizado, Long sedeId) {
         //1. Buscar al niño que vino a clase
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new RuntimeException("Estudiante no encontrado"));
@@ -125,11 +127,7 @@ public class FinancialService {
         } else if (tipoClase == TipoClase.PERSONALIZADA) {
             precioFinal = PRECIO_PERSONALIZADA;
         } else {
-            if (esMediaClase) {
-                precioFinal = PRECIO_MEDIA_GRUPAL;
-            } else {
-                precioFinal = PRECIO_GRUPAL;
-            }
+            precioFinal = PRECIO_GRUPAL;
         }
 
         //3. Procesar la Fecha (Si el profe no manda fecha, usamos la de hoy)
@@ -148,10 +146,15 @@ public class FinancialService {
         asistencia.setPrecioCobrado(precioFinal);
         asistencia.setClasePaga(false);
         asistencia.setNivel(nivel); // Guardamos el nuevo nivel ("INICIACIÓN" o "AVANZADO")
-
-        asistencia.setEsMediaClase(esMediaClase);
-
         asistencia.setNombreEstudianteHistorico(student.getNombreCompleto());
+        asistencia.setTipoClase(tipoClase.name()); // Guarda "GRUPAL" o "PERSONALIZADA"
+
+        // Asignar sede a la asistencia si se especificó
+        if (sedeId != null) {
+            Sede sede = sedeRepository.findById(sedeId)
+                    .orElseThrow(() -> new RuntimeException("Sede no encontrada con ID: " + sedeId));
+            asistencia.setSede(sede);
+        }
         attendanceRepository.save(asistencia);
 
         //5. Motor FIFO de cobro automático
@@ -163,33 +166,49 @@ public class FinancialService {
         Parent parent = parentRepository.findById(parentId)
                 .orElseThrow(() -> new RuntimeException("Padre no encontrado con ID: " + parentId));
 
-        // 1. Orfanar asistencias de todos los hijos
+        // Seguridad: solo permitir borrar familias INACTIVAS
+        if (!"INACTIVO".equals(parent.getEstado())) {
+            throw new RuntimeException("Debes marcar la familia como INACTIVA antes de poder eliminarla.");
+        }
+
         if (parent.getStudents() != null) {
             for (Student student : parent.getStudents()) {
-                List<Attendance> asistencias = attendanceRepository.findByStudentId(student.getId());
-                for (Attendance a : asistencias) {
-                    a.setNombreEstudianteHistorico(student.getNombreCompleto());
-                    a.setStudent(null);
-                    attendanceRepository.save(a);
-                }
+                Long sid = student.getId();
+
+                // 1. Forzar DELETE en tabla legada student_sedes (FK constraint) vía SQL nativo
+                studentRepository.deleteFromStudentSedes(sid);
+
+                // 2. Limpiar enrolamientos (tabla enrollments)
+                student.getMatriculas().clear();
+
+                // 3. Orfanar asistencias vía SQL nativo (conserva historial)
+                attendanceRepository.orphanAttendancesByStudentId(sid);
+
+                studentRepository.save(student);
             }
         }
 
-        // 2. Orfanar financial_logs del padre
+        // 4. Orfanar financial_logs del padre (guardando respaldo del nombre)
         List<FinancialLog> logs = financialLogRepository.findByParentIdOrderByFechaDesc(parentId);
         for (FinancialLog log : logs) {
+            if (log.getNombreClienteRespaldo() == null || log.getNombreClienteRespaldo().isBlank()) {
+                log.setNombreClienteRespaldo(parent.getNombreCompleto());
+            }
             log.setParent(null);
             financialLogRepository.save(log);
         }
 
-        // 3. Eliminar estudiantes
+        // Flush para asegurar que los DELETE/UPDATE se ejecuten antes del borrado final
+        studentRepository.flush();
+
+        // 5. Eliminar estudiantes (orphanRemoval=true arrastra enrollments)
         if (parent.getStudents() != null) {
             for (Student student : parent.getStudents()) {
                 studentRepository.delete(student);
             }
         }
 
-        // 4. Eliminar padre
+        // 6. Eliminar padre
         parentRepository.delete(parent);
     }
 

@@ -2,6 +2,7 @@ package com.asistencia.erp.repository;
 
 import com.asistencia.erp.entity.Attendance;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -25,4 +26,9 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
            "WHERE s.parent.id = :parentId AND a.clasePaga = false " +
            "ORDER BY a.fecha DESC")
     List<Attendance> findUnpaidByParentIdOrderByFechaDesc(@Param("parentId") Long parentId);
+
+    // Orfanar asistencias de un estudiante (desvincula sin borrar el historial)
+    @Modifying
+    @Query(value = "UPDATE attendances SET student_id = NULL, nombre_estudiante_historico = COALESCE(nombre_estudiante_historico, (SELECT nombre_completo FROM students WHERE id = :studentId)) WHERE student_id = :studentId", nativeQuery = true)
+    void orphanAttendancesByStudentId(@Param("studentId") Long studentId);
 }

@@ -20,19 +20,21 @@ public class AsistenciaController {
     private final AttendanceRepository attendanceRepository;
     private final StudentRepository studentRepository;
 
+    private boolean estudianteEnSede(Student s, List<Long> sedesIds) {
+        return s.getMatriculas() != null &&
+                s.getMatriculas().stream()
+                        .anyMatch(m -> m.getSede() != null && sedesIds.contains(m.getSede().getId()));
+    }
+
     @GetMapping
     public List<Attendance> listarAsistencias() {
         List<Attendance> todas = attendanceRepository.findAll();
-
         if (SecurityUtils.isEmpleado()) {
             List<Long> sedes = SecurityUtils.getSedesAutorizadas();
             return todas.stream()
-                    .filter(a -> a.getStudent() != null &&
-                            a.getStudent().getSede() != null &&
-                            sedes.contains(a.getStudent().getSede().getId()))
+                    .filter(a -> a.getStudent() != null && estudianteEnSede(a.getStudent(), sedes))
                     .collect(Collectors.toList());
         }
-
         return todas;
     }
 
@@ -42,7 +44,7 @@ public class AsistenciaController {
                 .map(student -> {
                     if (SecurityUtils.isEmpleado()) {
                         List<Long> sedes = SecurityUtils.getSedesAutorizadas();
-                        if (student.getSede() == null || !sedes.contains(student.getSede().getId())) {
+                        if (!estudianteEnSede(student, sedes)) {
                             return ResponseEntity.status(403).body("Acceso denegado a esta sede");
                         }
                     }

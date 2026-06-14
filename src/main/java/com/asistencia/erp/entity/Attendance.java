@@ -22,6 +22,12 @@ public class Attendance {
     @JsonIgnoreProperties({"attendances", "parent", "hibernateLazyInitializer", "handler"})
     private Student student;
 
+    //Relación: Cada asistencia está vinculada a una sede específica
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "sede_id")
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "grupos"})
+    private Sede sede;
+
     @Column(name = "nombre_estudiante_historico")
     private String nombreEstudianteHistorico;
 
@@ -36,7 +42,11 @@ public class Attendance {
     private BigDecimal precioCobrado;
 
     @Column(name = "nivel_clase")
-    private String nivel; // Guardará "INICIACIÓN" o "AVANZADO"
+    private String nivel; // Guardará el nombre del grupo/nivel (ej. "🌱 Iniciación")
+
+    //Indica el tipo de clase: "GRUPAL" o "PERSONALIZADA"
+    @Column(name = "tipo_clase")
+    private String tipoClase;
 
     //Nos indicará si esta clase ya fue cubierta por un abono o pago
     @Column(name = "clase_paga", nullable = false)

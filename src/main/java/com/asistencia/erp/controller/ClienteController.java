@@ -20,35 +20,33 @@ public class ClienteController {
     private final ParentRepository parentRepository;
     private final StudentRepository studentRepository;
 
+    private boolean estudianteEnSede(Student s, List<Long> sedesIds) {
+        return s.getMatriculas() != null &&
+                s.getMatriculas().stream()
+                        .anyMatch(m -> m.getSede() != null && sedesIds.contains(m.getSede().getId()));
+    }
+
     @GetMapping
     public List<Parent> listarClientes() {
         List<Parent> todos = parentRepository.findAll();
-
         if (SecurityUtils.isEmpleado()) {
             List<Long> sedes = SecurityUtils.getSedesAutorizadas();
-            // Filtrar padres que tengan hijos en las sedes autorizadas del empleado
             return todos.stream()
                     .filter(p -> p.getStudents() != null &&
-                            p.getStudents().stream()
-                                    .anyMatch(s -> s.getSede() != null &&
-                                            sedes.contains(s.getSede().getId())))
+                            p.getStudents().stream().anyMatch(s -> estudianteEnSede(s, sedes)))
                     .collect(Collectors.toList());
         }
-
         return todos;
     }
 
     @GetMapping("/estudiantes")
     public List<Student> listarEstudiantes() {
         List<Student> todos = studentRepository.findAll();
-
         if (SecurityUtils.isEmpleado()) {
             List<Long> sedes = SecurityUtils.getSedesAutorizadas();
-            return todos.stream()
-                    .filter(s -> s.getSede() != null && sedes.contains(s.getSede().getId()))
+            return todos.stream().filter(s -> estudianteEnSede(s, sedes))
                     .collect(Collectors.toList());
         }
-
         return todos;
     }
 
@@ -56,13 +54,10 @@ public class ClienteController {
     public ResponseEntity<?> obtenerCliente(@PathVariable Long id) {
         return parentRepository.findById(id)
                 .map(parent -> {
-                    // Verificar acceso por sede si es empleado
                     if (SecurityUtils.isEmpleado()) {
                         List<Long> sedes = SecurityUtils.getSedesAutorizadas();
                         boolean tieneAcceso = parent.getStudents() != null &&
-                                parent.getStudents().stream()
-                                        .anyMatch(s -> s.getSede() != null &&
-                                                sedes.contains(s.getSede().getId()));
+                                parent.getStudents().stream().anyMatch(s -> estudianteEnSede(s, sedes));
                         if (!tieneAcceso) {
                             return ResponseEntity.status(403).body("Acceso denegado a esta sede");
                         }

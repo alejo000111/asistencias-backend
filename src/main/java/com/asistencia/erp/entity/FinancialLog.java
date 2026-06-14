@@ -31,6 +31,9 @@ public class FinancialLog {
     @Column(name = "tipo_movimiento", nullable = false)
     private MovementType tipoMovimiento;
 
+    @Column(name = "nombre_cliente_respaldo")
+    private String nombreClienteRespaldo;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "metodo_pago", nullable = false)
     private PaymentMethod metodoPago;

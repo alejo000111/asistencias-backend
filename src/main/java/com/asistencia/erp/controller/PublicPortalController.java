@@ -14,6 +14,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -45,6 +46,11 @@ public class PublicPortalController {
                 .stream()
                 .limit(10)
                 .toList();
+
+        // Limpiar sedes del estudiante para el portal público (no debe ver información de sedes)
+        if (parent.getStudents() != null) {
+            parent.getStudents().forEach(s -> s.setMatriculas(new java.util.ArrayList<>()));
+        }
 
         Map<String, Object> response = new HashMap<>();
         response.put("parent", parent);
