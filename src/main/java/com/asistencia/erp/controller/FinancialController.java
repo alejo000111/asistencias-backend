@@ -70,26 +70,23 @@ public class FinancialController {
     //Ruta final: http://localhost:8080/api/finanzas/abono
     //*************************************
     @PostMapping("/abono")
-    public String registrarAbono(
+    public ResponseEntity<?> registrarAbono(
             @RequestParam Long parentId,
             @RequestParam BigDecimal monto,
             @RequestParam String metodoPago,
             @RequestParam(required = false) String fecha) {
 
-        // Si no mandan fecha, usamos la de hoy
         java.time.LocalDate fechaAbono = (fecha != null && !fecha.isEmpty())
                 ? java.time.LocalDate.parse(fecha)
                 : java.time.LocalDate.now();
 
         financialService.registrarAbono(parentId, monto, FinancialLog.PaymentMethod.valueOf(metodoPago), fechaAbono);
-        return "Abono registrado con éxito";
+        return ResponseEntity.ok("Abono registrado con éxito");
     }
 
     @GetMapping("/historial")
-    public org.springframework.http.ResponseEntity<?> obtenerHistorialCaja() {
-        // Asumiendo que tienes un financialLogRepository inyectado en este controlador
-        // Si no lo tienes, puedes agregarlo o llamarlo a través del financialService
-        return org.springframework.http.ResponseEntity.ok(financialLogRepository.findAll());
+    public ResponseEntity<?> obtenerHistorialCaja() {
+        return ResponseEntity.ok(financialLogRepository.findAll());
     }
 
     @GetMapping("/historial/{parentId}")
@@ -117,8 +114,8 @@ public class FinancialController {
     //METODO: GET
     //*************************************
     @GetMapping("/historial-asistencias")
-    public org.springframework.http.ResponseEntity<?> obtenerTodasLasAsistencias() {
-        return org.springframework.http.ResponseEntity.ok(attendanceRepository.findAll());
+    public ResponseEntity<?> obtenerTodasLasAsistencias() {
+        return ResponseEntity.ok(attendanceRepository.findAll());
     }
 
     //*************************************
@@ -126,9 +123,9 @@ public class FinancialController {
     //METODO: DELETE
     //*************************************
     @DeleteMapping("/asistencia/{id}")
-    public org.springframework.http.ResponseEntity<?> eliminarAsistencia(@PathVariable Long id) {
+    public ResponseEntity<?> eliminarAsistencia(@PathVariable Long id) {
         attendanceRepository.deleteById(id);
-        return org.springframework.http.ResponseEntity.ok("Asistencia eliminada");
+        return ResponseEntity.ok("Asistencia eliminada");
     }
 
     //*************************************
