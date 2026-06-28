@@ -17,16 +17,14 @@ public class WebConfig implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         // DETECTOR AUTOMÁTICO DE ENTORNO
-        // Si ddl-auto está en 'create' o 'update' (como configuramos en Render Staging), activa modo permisivo para pruebas personales
+        // Si ddl-auto está en 'create' o 'update' (Staging), habilitamos acceso absoluto para desarrollo personal
         if ("create".equals(ddlAutoEnv) || "update".equals(ddlAutoEnv)) {
             registry.addMapping("/api/**")
-                    .allowedOriginPatterns("https://*.vercel.app", "http://localhost:*")
+                    .allowedOrigins("*")
                     .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
-                    .allowedHeaders("*")
-                    .allowCredentials(true);
+                    .allowedHeaders("*");
         } else {
-            // MODO ULTRA SEGURO PARA PRODUCCIÓN (MAIN)
-            // Solo acepta el dominio productivo oficial mapeado en la variable real
+            // MODO ULTRA SEGURO PARA PRODUCCIÓN (MAIN) - INMUTABLE
             registry.addMapping("/api/**")
                     .allowedOrigins(allowedOriginsProduction.split(","))
                     .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
