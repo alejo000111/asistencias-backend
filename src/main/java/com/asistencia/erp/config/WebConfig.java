@@ -17,12 +17,13 @@ public class WebConfig implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         // DETECTOR AUTOMÁTICO DE ENTORNO
-        // Si ddl-auto está en 'create' o 'update' (Staging), habilitamos acceso absoluto para desarrollo personal
+        // MODO STAGING - COMPATIBLE CON CREDENCIALES DE AXIOS (withCredentials=true)
         if ("create".equals(ddlAutoEnv) || "update".equals(ddlAutoEnv)) {
             registry.addMapping("/api/**")
-                    .allowedOrigins("*")
+                    .allowedOriginPatterns("https://*.vercel.app", "http://localhost:*")
                     .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
-                    .allowedHeaders("*");
+                    .allowedHeaders("*")
+                    .allowCredentials(true); // REQUERIDO POR INTERCEPTORES AXIOS
         } else {
             // MODO ULTRA SEGURO PARA PRODUCCIÓN (MAIN) - INMUTABLE
             registry.addMapping("/api/**")
