@@ -36,11 +36,6 @@ public class SecurityConfig {
                 // Público
                 .requestMatchers("/api/auth/login").permitAll()
                 .requestMatchers("/api/public/**").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/finanzas/padres").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/finanzas/historial-asistencias").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/finanzas/historial/**").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/finanzas/deudas/**").permitAll()
-                .requestMatchers("/api/registro/**").permitAll()
                 // Solo ADMIN
                 .requestMatchers("/api/finanzas/asistencia").hasRole("ADMIN")
                 .requestMatchers("/api/finanzas/abono").hasRole("ADMIN")
@@ -72,7 +67,11 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOriginPatterns(List.of("*"));
+        config.setAllowedOriginPatterns(List.of(
+            "http://localhost:*",
+            "http://127.0.0.1:*",
+            "https://*.vercel.app"
+        ));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);

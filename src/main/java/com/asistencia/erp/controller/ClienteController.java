@@ -21,22 +21,25 @@ public class ClienteController {
     private final StudentRepository studentRepository;
 
     private boolean estudianteEnSede(Student s, List<Long> sedesIds) {
-        return s.getMatriculas() != null &&
-                s.getMatriculas().stream()
-                        .anyMatch(m -> m.getSede() != null && sedesIds.contains(m.getSede().getId()));
+        // Coincide por matrícula activa
+        if (s.getMatriculas() != null &&
+                s.getMatriculas().stream().anyMatch(m -> m.getSede() != null && sedesIds.contains(m.getSede().getId()))) {
+            return true;
+        }
+        // O por asistencias históricas (estudiante desmatriculado con historial)
+        return s.getAttendances() != null &&
+                s.getAttendances().stream().anyMatch(a -> a.getSede() != null && sedesIds.contains(a.getSede().getId()));
     }
 
     @GetMapping
     public List<Parent> listarClientes() {
-        List<Parent> todos = parentRepository.findAll();
         if (SecurityUtils.isEmpleado()) {
             List<Long> sedes = SecurityUtils.getSedesAutorizadas();
-            return todos.stream()
-                    .filter(p -> p.getStudents() != null &&
-                            p.getStudents().stream().anyMatch(s -> estudianteEnSede(s, sedes)))
-                    .collect(Collectors.toList());
+            if (sedes.isEmpty()) return List.of();
+            // Consulta JPQL optimizada con JOIN, filtra a nivel BD
+            return parentRepository.findParentsBySedes(sedes);
         }
-        return todos;
+        return parentRepository.findAll();
     }
 
     @GetMapping("/estudiantes")

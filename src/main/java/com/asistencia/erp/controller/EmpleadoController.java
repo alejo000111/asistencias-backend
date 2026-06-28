@@ -1,5 +1,6 @@
 package com.asistencia.erp.controller;
 
+import com.asistencia.erp.dto.EmpleadoDTO;
 import com.asistencia.erp.entity.AppUser;
 import com.asistencia.erp.entity.Sede;
 import com.asistencia.erp.repository.AppUserRepository;
@@ -13,6 +14,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/empleados")
@@ -24,8 +26,11 @@ public class EmpleadoController {
     private final PasswordEncoder passwordEncoder;
 
     @GetMapping
-    public List<AppUser> listarEmpleados() {
-        return appUserRepository.findAll();
+    public List<EmpleadoDTO> listarEmpleados() {
+        return appUserRepository.findAll()
+                .stream()
+                .map(EmpleadoDTO::fromEntity)
+                .collect(Collectors.toList());
     }
 
     @PostMapping
@@ -54,7 +59,7 @@ public class EmpleadoController {
             user.setSedesAutorizadas(sedes);
         }
 
-        return ResponseEntity.ok(appUserRepository.save(user));
+        return ResponseEntity.ok(EmpleadoDTO.fromEntity(appUserRepository.save(user)));
     }
 
     @PutMapping("/{id}")
@@ -78,7 +83,7 @@ public class EmpleadoController {
                         user.setSedesAutorizadas(sedes);
                     }
 
-                    return ResponseEntity.ok(appUserRepository.save(user));
+                    return ResponseEntity.ok(EmpleadoDTO.fromEntity(appUserRepository.save(user)));
                 })
                 .orElse(ResponseEntity.notFound().build());
     }

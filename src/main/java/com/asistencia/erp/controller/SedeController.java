@@ -44,6 +44,9 @@ public class SedeController {
         if (sede.getGrupos() == null) {
             sede.setGrupos(new java.util.ArrayList<>());
         }
+        if (sede.getActiva() == null) {
+            sede.setActiva(true);
+        }
         Sede saved = sedeRepository.save(sede);
         return ResponseEntity.ok(saved);
     }
@@ -53,6 +56,7 @@ public class SedeController {
         return sedeRepository.findById(id)
                 .map(existing -> {
                     existing.setNombre(sede.getNombre());
+                    existing.setActiva(sede.getActiva() != null ? sede.getActiva() : existing.getActiva());
                     existing.setGrupos(sede.getGrupos() != null ? sede.getGrupos() : new java.util.ArrayList<>());
                     return ResponseEntity.ok(sedeRepository.save(existing));
                 })

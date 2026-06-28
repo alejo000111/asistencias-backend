@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -119,6 +120,7 @@ public class DataSeeder implements CommandLineRunner {
             demoStudent.setParent(demoParent);
             demoStudent.setNombreCompleto("Santiago Perez");
             demoStudent.setEdad(10);
+            demoStudent.setFechaNacimiento(LocalDate.of(2016, 3, 15));
             demoStudent.setEstado(Student.StudentStatus.ACTIVO);
             Enrollment e1 = new Enrollment();
             e1.setStudent(demoStudent);
@@ -131,6 +133,7 @@ public class DataSeeder implements CommandLineRunner {
             demoStudent2.setParent(demoParent);
             demoStudent2.setNombreCompleto("Valentina Perez");
             demoStudent2.setEdad(12);
+            demoStudent2.setFechaNacimiento(LocalDate.of(2014, 7, 22));
             demoStudent2.setEstado(Student.StudentStatus.ACTIVO);
             Enrollment e2 = new Enrollment();
             e2.setStudent(demoStudent2);

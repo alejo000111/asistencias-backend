@@ -2,11 +2,14 @@ package com.asistencia.erp.controller;
 
 import com.asistencia.erp.dto.ActualizarDeportistaRequest;
 import com.asistencia.erp.dto.ActualizarDeportistaRequest.MatriculaDTO;
+
+import java.math.BigDecimal;
 import com.asistencia.erp.entity.*;
 import com.asistencia.erp.repository.*;
 import com.asistencia.erp.service.FinancialService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
@@ -59,7 +62,10 @@ public class RegistroController {
             deportista.setParent(padre);
             deportista.setNombreCompleto((req.getNombre() + " " + req.getApellido()).trim());
             deportista.setEdad(req.getEdad());
-            deportista.setFechaNacimiento(java.time.LocalDate.parse(req.getFechaNacimiento()));
+            // Blindaje: solo parsear si la fecha NO es nula ni vacía
+            if (req.getFechaNacimiento() != null && !req.getFechaNacimiento().trim().isEmpty()) {
+                deportista.setFechaNacimiento(java.time.LocalDate.parse(req.getFechaNacimiento()));
+            }
             deportista.setMatriculas(crearMatriculas(deportista, req.getMatriculas()));
             studentRepository.save(deportista);
             return ResponseEntity.ok("Deportista registrado con exito");
@@ -79,7 +85,10 @@ public class RegistroController {
 
             deportista.setNombreCompleto(req.getNombreCompleto().trim());
             deportista.setEdad(req.getEdad());
-            deportista.setFechaNacimiento(java.time.LocalDate.parse(req.getFechaNacimiento()));
+            // Blindaje: solo parsear si la fecha NO es nula ni vacía
+            if (req.getFechaNacimiento() != null && !req.getFechaNacimiento().trim().isEmpty()) {
+                deportista.setFechaNacimiento(java.time.LocalDate.parse(req.getFechaNacimiento()));
+            }
             deportista.setEstado(Student.StudentStatus.valueOf(req.getEstado()));
 
             // Reemplazar matriculas
@@ -143,16 +152,18 @@ public class RegistroController {
         }
     }
 
+    @Transactional
     @DeleteMapping("/deportista/{id}")
     public ResponseEntity<?> eliminarDeportista(@PathVariable Long id) {
         try {
             Student student = studentRepository.findById(id)
                     .orElseThrow(() -> new RuntimeException("Deportista no encontrado"));
-            for (Attendance a : attendanceRepository.findByStudentId(id)) {
+            List<Attendance> asistencias = attendanceRepository.findByStudentId(id);
+            for (Attendance a : asistencias) {
                 a.setNombreEstudianteHistorico(student.getNombreCompleto());
                 a.setStudent(null);
-                attendanceRepository.save(a);
             }
+            attendanceRepository.saveAll(asistencias);
             studentRepository.delete(student);
             return ResponseEntity.ok("Deportista eliminado. El historial de asistencias se conserva.");
         } catch (Exception e) {

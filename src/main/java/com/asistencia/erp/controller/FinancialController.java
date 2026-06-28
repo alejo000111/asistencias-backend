@@ -1,5 +1,6 @@
 package com.asistencia.erp.controller;
 
+import com.asistencia.erp.dto.AttendanceDTO;
 import com.asistencia.erp.entity.Attendance;
 import com.asistencia.erp.entity.FinancialLog;
 import com.asistencia.erp.entity.Parent;
@@ -15,9 +16,13 @@ import com.asistencia.erp.service.FinancialService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.stream.Collectors;
+
+import static com.asistencia.erp.security.SecurityUtils.*;
 
 @RestController
 @RequestMapping("/api/finanzas")
@@ -30,6 +35,25 @@ public class FinancialController {
     private final AttendanceRepository attendanceRepository;
     private final StudentRepository studentRepository;
     private final SedeRepository sedeRepository;
+
+    private ResponseEntity<?> verificarAccesoEmpleadoAPadre(Long parentId) {
+        if (!isEmpleado()) return null;
+        List<Long> sedes = getSedesAutorizadas();
+        if (sedes.isEmpty()) return ResponseEntity.status(403).body("Acceso denegado");
+
+        boolean tieneAcceso = parentRepository.findById(parentId)
+                .map(parent -> parent.getStudents() != null
+                        && parent.getStudents().stream()
+                                .flatMap(s -> s.getMatriculas().stream())
+                                .anyMatch(m -> m.getSede() != null && sedes.contains(m.getSede().getId())))
+                .orElse(false);
+
+        if (!tieneAcceso) {
+            return ResponseEntity.status(403).body("Acceso denegado a los datos de este padre");
+        }
+        return null;
+    }
+
     //*************************************
     //PUERTA 1: URL para registrar asistencias
     //METODO: POST
@@ -90,8 +114,12 @@ public class FinancialController {
     }
 
     @GetMapping("/historial/{parentId}")
-    public org.springframework.http.ResponseEntity<?> obtenerHistorialPorPadre(@PathVariable Long parentId) {
-        List<com.asistencia.erp.entity.FinancialLog> historialPadre = financialLogRepository
+    public ResponseEntity<?> obtenerHistorialPorPadre(@PathVariable Long parentId) {
+        // EMPLEADO: validar que el padre pertenezca a sus sedes autorizadas
+        ResponseEntity<?> permiso = verificarAccesoEmpleadoAPadre(parentId);
+        if (permiso != null) return permiso;
+
+        List<FinancialLog> historialPadre = financialLogRepository
                 .findByParentIdOrderByFechaDesc(parentId)
                 .stream()
                 .limit(10)
@@ -106,16 +134,42 @@ public class FinancialController {
     //Ruta final: http://localhost:8080/api/finanzas/padres
     @GetMapping("/padres")
     public List<Parent> obtenerPadres() {
-        return parentRepository.findAll();
+        List<Parent> todos = parentRepository.findAll();
+        if (SecurityUtils.isEmpleado()) {
+            List<Long> sedes = SecurityUtils.getSedesAutorizadas();
+            return todos.stream()
+                    .filter(p -> p.getStudents() != null &&
+                            p.getStudents().stream().anyMatch(s ->
+                                    s.getMatriculas() != null &&
+                                    s.getMatriculas().stream()
+                                            .anyMatch(m -> m.getSede() != null && sedes.contains(m.getSede().getId()))
+                            ))
+                    .collect(Collectors.toList());
+        }
+        return todos;
     }
 
     //*************************************
     //PUERTA 4: URL para ver el historial completo de asistencias
     //METODO: GET
     //*************************************
+    @Transactional(readOnly = true)
     @GetMapping("/historial-asistencias")
     public ResponseEntity<?> obtenerTodasLasAsistencias() {
-        return ResponseEntity.ok(attendanceRepository.findAll());
+        List<Attendance> asistencias;
+        if (SecurityUtils.isEmpleado()) {
+            List<Long> sedes = SecurityUtils.getSedesAutorizadas();
+            if (sedes.isEmpty()) {
+                return ResponseEntity.ok(List.of());
+            }
+            asistencias = attendanceRepository.findBySedeIdIn(sedes);
+        } else {
+            asistencias = attendanceRepository.findAll();
+        }
+        List<AttendanceDTO> dtos = asistencias.stream()
+                .map(AttendanceDTO::fromEntity)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(dtos);
     }
 
     //*************************************
@@ -134,7 +188,11 @@ public class FinancialController {
     //*************************************
     @GetMapping("/deudas/{parentId}")
     public ResponseEntity<?> obtenerDeudasPadre(@PathVariable Long parentId) {
-        List<com.asistencia.erp.entity.Attendance> deudas = attendanceRepository
+        // EMPLEADO: validar que el padre pertenezca a sus sedes autorizadas
+        ResponseEntity<?> permiso = verificarAccesoEmpleadoAPadre(parentId);
+        if (permiso != null) return permiso;
+
+        List<Attendance> deudas = attendanceRepository
                 .findUnpaidByParentIdOrderByFechaDesc(parentId);
 
         return ResponseEntity.ok(deudas);
@@ -155,21 +213,19 @@ public class FinancialController {
         }
     }
 
+    @Transactional
     @DeleteMapping("/deportista/{id}")
     public ResponseEntity<?> eliminarDeportista(@PathVariable Long id) {
         try {
             Student student = studentRepository.findById(id).orElse(null);
             if (student == null) return ResponseEntity.notFound().build();
 
-            // 1. Buscamos sus asistencias
             List<Attendance> asistencias = attendanceRepository.findByStudentId(id);
-
             for (Attendance a : asistencias) {
-                // ASIGNAMOS EL NOMBRE REAL ANTES DE BORRAR
                 a.setNombreEstudianteHistorico(student.getNombreCompleto());
-                a.setStudent(null); // Soltamos el ID
-                attendanceRepository.save(a);
+                a.setStudent(null);
             }
+            attendanceRepository.saveAll(asistencias);
 
             studentRepository.delete(student);
             return ResponseEntity.ok("Eliminado");
