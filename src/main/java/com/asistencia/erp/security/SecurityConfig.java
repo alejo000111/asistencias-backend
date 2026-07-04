@@ -69,11 +69,20 @@ public class SecurityConfig {
         configuration.addAllowedOriginPattern("http://127.0.0.1:*");
 
         // ============================================================
-        // 🌐 ORÍGENES DE PRODUCCIÓN / STAGING
-        //    Lectura jerárquica:
+        // 🌐 VERCEL — siempre permitido (Producción + Preview)
+        //    - Production:  https://<app>.vercel.app
+        //    - Preview:     https://<project-hash>-<scope>.vercel.app
+        //    El patrón con comodín cubre TODOS los despliegues de Vercel
+        //    sin necesidad de reconfigurar CORS en cada preview.
+        //    Esto es seguro porque Vercel es la única plataforma de frontend.
+        // ============================================================
+        configuration.addAllowedOriginPattern("https://*.vercel.app");
+
+        // ============================================================
+        // 🌐 ORÍGENES ADICIONALES (lectura jerárquica)
         //    1. System.getenv("CORS_ALLOWED_ORIGINS") — Render dashboard
         //    2. @Value("${cors.allowed-origins}")      — application.properties o System property
-        //    3. Si ambos están vacíos → solo localhost (seguro para dev local)
+        //    3. Si ambos están vacíos → solo localhost + Vercel (comportamiento seguro por defecto)
         // ============================================================
         String origins = System.getenv("CORS_ALLOWED_ORIGINS");
         if (origins == null || origins.isBlank()) {
