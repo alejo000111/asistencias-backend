@@ -1,19 +1,20 @@
 package com.asistencia.erp.controller;
 
-import com.asistencia.erp.entity.Attendance;
-import com.asistencia.erp.entity.FinancialLog;
-import com.asistencia.erp.entity.Parent;
-import com.asistencia.erp.entity.Student;
-import com.asistencia.erp.repository.AttendanceRepository;
-import com.asistencia.erp.repository.FinancialLogRepository;
-import com.asistencia.erp.repository.ParentRepository;
-import com.asistencia.erp.repository.StudentRepository;
-import com.asistencia.erp.service.FinancialService;
-import lombok.RequiredArgsConstructor;
+import com.asistencia.erp.dto.ActualizarDeportistaRequest;
+import com.asistencia.erp.dto.ActualizarDeportistaRequest.MatriculaDTO;
 
 import java.math.BigDecimal;
+import com.asistencia.erp.entity.*;
+import com.asistencia.erp.repository.*;
+import com.asistencia.erp.service.FinancialService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/registro")
@@ -23,6 +24,7 @@ public class RegistroController {
     private final FinancialService financialService;
     private final ParentRepository parentRepository;
     private final StudentRepository studentRepository;
+    private final SedeRepository sedeRepository;
     private final AttendanceRepository attendanceRepository;
     private final FinancialLogRepository financialLogRepository;
 
@@ -33,133 +35,139 @@ public class RegistroController {
         padre.setTelefono(telefono);
         padre.setSaldoAbono(BigDecimal.ZERO);
         parentRepository.save(padre);
-        return "Padre registrado con éxito";
+        return "Padre registrado con exito";
     }
 
-    @PostMapping("/deportista")
-    public String registrarDeportista(
-            @RequestParam Long parentId,
-            @RequestParam String nombre,
-            @RequestParam String apellido,
-            @RequestParam Integer edad,
-            @RequestParam String fechaNacimiento,
-            @RequestParam String nivel) {
+    private List<Enrollment> crearMatriculas(Student student, List<MatriculaDTO> matriculaDTOs) {
+        List<Enrollment> matriculas = new ArrayList<>();
+        if (matriculaDTOs != null) {
+            for (MatriculaDTO dto : matriculaDTOs) {
+                Sede sede = sedeRepository.findById(dto.getSedeId())
+                        .orElseThrow(() -> new RuntimeException("Sede no encontrada: " + dto.getSedeId()));
+                Enrollment e = new Enrollment();
+                e.setStudent(student);
+                e.setSede(sede);
+                e.setNivel(dto.getNivel());
+                matriculas.add(e);
+            }
+        }
+        return matriculas;
+    }
 
-        Parent padre = parentRepository.findById(parentId)
-                .orElseThrow(() -> new RuntimeException("Padre no encontrado con ID: " + parentId));
-        Student deportista = new Student();
-        deportista.setParent(padre);
-        deportista.setNombreCompleto(nombre.trim() + " " + apellido.trim());
-        deportista.setEdad(edad);
-        deportista.setFechaNacimiento(java.time.LocalDate.parse(fechaNacimiento));
-        deportista.setNivel(nivel);
-        studentRepository.save(deportista);
-        return "¡Deportista registrado con éxito!";
+    @Transactional
+    @PostMapping("/deportista")
+    public ResponseEntity<?> registrarDeportista(@RequestBody com.asistencia.erp.dto.RegistrarDeportistaRequest req) {
+        try {
+            Parent padre = parentRepository.findById(req.getParentId())
+                    .orElseThrow(() -> new RuntimeException("Padre no encontrado"));
+            Student deportista = new Student();
+            deportista.setParent(padre);
+            deportista.setNombreCompleto((req.getNombre() + " " + req.getApellido()).trim());
+            deportista.setEdad(req.getEdad());
+            // Blindaje: solo parsear si la fecha NO es nula ni vacía
+            if (req.getFechaNacimiento() != null && !req.getFechaNacimiento().trim().isEmpty()) {
+                deportista.setFechaNacimiento(java.time.LocalDate.parse(req.getFechaNacimiento()));
+            }
+            deportista.setMatriculas(crearMatriculas(deportista, req.getMatriculas()));
+            studentRepository.save(deportista);
+            return ResponseEntity.ok("Deportista registrado con exito");
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
+        }
     }
 
     @PutMapping("/deportista/{id}")
-    public String actualizarDeportista(
+    public ResponseEntity<?> actualizarDeportista(
             @PathVariable Long id,
-            @RequestParam String nombreCompleto,
-            @RequestParam Integer edad,
-            @RequestParam String fechaNacimiento,
-            @RequestParam String estado,
-            @RequestParam String nivel) {
+            @RequestBody ActualizarDeportistaRequest req) {
+        try {
+            Student deportista = studentRepository.findById(id)
+                    .orElseThrow(() -> new RuntimeException("Deportista no encontrado con ID: " + id));
 
-        Student deportista = studentRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Deportista no encontrado con ID: " + id));
-        deportista.setNombreCompleto(nombreCompleto.trim());
-        deportista.setEdad(edad);
-        deportista.setFechaNacimiento(java.time.LocalDate.parse(fechaNacimiento));
-        deportista.setEstado(Student.StudentStatus.valueOf(estado));
-        deportista.setNivel(nivel);
-        studentRepository.save(deportista);
-        return "Deportista actualizado";
+            deportista.setNombreCompleto(req.getNombreCompleto().trim());
+            deportista.setEdad(req.getEdad());
+            // Blindaje: solo parsear si la fecha NO es nula ni vacía
+            if (req.getFechaNacimiento() != null && !req.getFechaNacimiento().trim().isEmpty()) {
+                deportista.setFechaNacimiento(java.time.LocalDate.parse(req.getFechaNacimiento()));
+            }
+            deportista.setEstado(Student.StudentStatus.valueOf(req.getEstado()));
+
+            // Reemplazar matriculas
+            deportista.getMatriculas().clear();
+            deportista.getMatriculas().addAll(crearMatriculas(deportista, req.getMatriculas()));
+
+            studentRepository.save(deportista);
+            return ResponseEntity.ok("Deportista actualizado");
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().body("Error al actualizar deportista: " + e.getMessage());
+        }
     }
 
     @PutMapping("/padre/{id}")
-    public String actualizarPadre(
+    public ResponseEntity<?> actualizarPadre(
             @PathVariable Long id,
             @RequestParam String nombreCompleto,
             @RequestParam String telefono,
             @RequestParam String estado) {
-        Parent padre = parentRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Padre no encontrado con ID: " + id));
-        padre.setNombreCompleto(nombreCompleto.trim());
-        padre.setTelefono(telefono.trim());
-        padre.setEstado(estado);
-        parentRepository.save(padre);
-        return "Padre actualizado";
+        try {
+            Parent padre = parentRepository.findById(id)
+                    .orElseThrow(() -> new RuntimeException("Padre no encontrado con ID: " + id));
+            padre.setNombreCompleto(nombreCompleto.trim());
+            padre.setTelefono(telefono.trim());
+            padre.setEstado(estado);
+            parentRepository.save(padre);
+            return ResponseEntity.ok("Padre actualizado");
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().body("Error al actualizar padre: " + e.getMessage());
+        }
     }
 
-    //*************************************
-    // OPCIÓN 1: ELIMINAR (hard-delete)
-    // Borra al padre y estudiantes de la BD, pero conserva el historial
-    // orfanando las referencias en asistencias y financial_logs.
-    //*************************************
+    @PreAuthorize("hasRole('ADMIN')")
     @DeleteMapping("/padre/{id}")
     public ResponseEntity<?> eliminarPadre(@PathVariable Long id) {
         try {
             financialService.eliminarFamilia(id);
-        return ResponseEntity.ok("Familia eliminada completamente. El historial se conserva.");
+            return ResponseEntity.ok("Familia eliminada completamente. El historial se conserva.");
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Error: " + e.getMessage());
         }
     }
 
-    //*************************************
-    // OPCIÓN 2: INACTIVAR (soft-delete)
-    // Marca al padre como INACTIVO y a los hijos como RETIRADO.
-    // Siguen existiendo en BD pero no aparecen en clientes activos.
-    //*************************************
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/padre/{id}/inactivar")
     public ResponseEntity<?> inactivarPadre(@PathVariable Long id) {
         try {
             Parent parent = parentRepository.findById(id)
                     .orElseThrow(() -> new RuntimeException("Padre no encontrado"));
-
             parent.setEstado("INACTIVO");
             parentRepository.save(parent);
-
             if (parent.getStudents() != null) {
                 for (Student student : parent.getStudents()) {
                     student.setEstado(Student.StudentStatus.RETIRADO);
                     studentRepository.save(student);
                 }
             }
-
-            return ResponseEntity.ok("Familia marcada como inactiva. Puedes reactivarla desde Clientes Inactivos.");
+            return ResponseEntity.ok("Familia marcada como inactiva.");
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Error: " + e.getMessage());
         }
     }
 
-    //*************************************
-    // OPCIÓN 1: ELIMINAR deportista (hard-delete)
-    //*************************************
+    @PreAuthorize("hasRole('ADMIN')")
     @DeleteMapping("/deportista/{id}")
     public ResponseEntity<?> eliminarDeportista(@PathVariable Long id) {
         try {
-            Student student = studentRepository.findById(id)
-                    .orElseThrow(() -> new RuntimeException("Deportista no encontrado"));
-
-            // Orfanar asistencias
-            for (Attendance a : attendanceRepository.findByStudentId(id)) {
-                a.setNombreEstudianteHistorico(student.getNombreCompleto());
-                a.setStudent(null);
-                attendanceRepository.save(a);
-            }
-
-            studentRepository.delete(student);
+            financialService.eliminarDeportista(id);
             return ResponseEntity.ok("Deportista eliminado. El historial de asistencias se conserva.");
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Error: " + e.getMessage());
         }
     }
 
-    //*************************************
-    // OPCIÓN 2: RETIRAR deportista (soft-delete)
-    //*************************************
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/deportista/{id}/retirar")
     public ResponseEntity<?> retirarDeportista(@PathVariable Long id) {
         try {
@@ -167,7 +175,7 @@ public class RegistroController {
                     .orElseThrow(() -> new RuntimeException("Deportista no encontrado"));
             student.setEstado(Student.StudentStatus.RETIRADO);
             studentRepository.save(student);
-            return ResponseEntity.ok("Deportista marcado como retirado. Se puede reactivar editándolo.");
+            return ResponseEntity.ok("Deportista marcado como retirado.");
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Error: " + e.getMessage());
         }

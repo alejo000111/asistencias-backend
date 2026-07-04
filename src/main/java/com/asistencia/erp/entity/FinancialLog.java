@@ -2,6 +2,7 @@ package com.asistencia.erp.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import com.fasterxml.jackson.annotation.JsonFormat;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
@@ -22,6 +23,7 @@ public class FinancialLog {
     private Parent parent;
 
     @Column(name = "fecha", nullable = false)
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime fecha;
 
     @Column(name = "monto", precision = 10, scale = 2, nullable = false)
@@ -30,6 +32,9 @@ public class FinancialLog {
     @Enumerated(EnumType.STRING)
     @Column(name = "tipo_movimiento", nullable = false)
     private MovementType tipoMovimiento;
+
+    @Column(name = "nombre_cliente_respaldo")
+    private String nombreClienteRespaldo;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "metodo_pago", nullable = false)

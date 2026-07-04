@@ -33,7 +33,7 @@ public class Parent {
     private String secretToken;
 
     //Relación: Un padre tiene muchos hijos
-    @OneToMany(mappedBy = "parent", cascade = CascadeType.ALL)
+    @OneToMany(mappedBy = "parent", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Student> students;
 
     @PrePersist
