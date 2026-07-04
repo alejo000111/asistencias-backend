@@ -43,7 +43,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/login").permitAll()
                 .requestMatchers("/api/public/**").permitAll()
                 // Solo ADMIN — respaldo a nivel HTTP (además de @PreAuthorize a nivel de método)
-                .requestMatchers("/api/finanzas/**").hasRole("ADMIN")
+                .requestMatchers("/api/finanzas/**").hasAnyRole("ADMIN", "EMPLEADO")
                 .requestMatchers(HttpMethod.GET, "/api/sedes").hasAnyRole("ADMIN", "EMPLEADO")
                 .requestMatchers("/api/sedes/**").hasRole("ADMIN")
                 .requestMatchers("/api/empleados/**").hasRole("ADMIN")

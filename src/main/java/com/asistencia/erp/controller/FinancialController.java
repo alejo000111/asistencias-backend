@@ -58,7 +58,6 @@ public class FinancialController {
     //METODO: POST
     //Ruta final: http://localhost:8080/api/finanzas/asistencia
     //*************************************
-    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/asistencia")
     public ResponseEntity<?> registrarAsistencia(
             @RequestParam Long studentId,
@@ -68,8 +67,17 @@ public class FinancialController {
             @RequestParam(required = false) BigDecimal precioPersonalizado,
             @RequestParam(required = false) Long sedeId) {
 
-        // Seguridad: si es EMPLEADO y la sede está inactiva, bloquear
-        if (SecurityUtils.isEmpleado() && sedeId != null) {
+        // Si es EMPLEADO: validar que la sede esté en sus autorizadas y esté activa
+        if (SecurityUtils.isEmpleado()) {
+            if (sedeId == null) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body("Debe especificar una sede autorizada");
+            }
+            List<Long> sedesAutorizadas = SecurityUtils.getSedesAutorizadas();
+            if (!sedesAutorizadas.contains(sedeId)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body("No tiene permisos para registrar asistencias en esta sede");
+            }
             Sede sede = sedeRepository.findById(sedeId).orElse(null);
             if (sede == null || Boolean.FALSE.equals(sede.getActiva())) {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN)
@@ -110,6 +118,7 @@ public class FinancialController {
     }
 
     @GetMapping("/historial")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> obtenerHistorialCaja() {
         // PERF-JACKSON-01: Usar DTO en lugar de exponer la entidad JPA directamente
         List<FinancialLogDTO> dtos = financialLogRepository.findAll().stream()
