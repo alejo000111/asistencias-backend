@@ -34,15 +34,19 @@ public class ClienteController {
     }
 
     @GetMapping("/estudiantes")
-    public List<Student> listarEstudiantes() {
-        // PERF-N1-01: findAllWithFetch() con JOIN FETCH evita N+1 en serialización
-        List<Student> todos = studentRepository.findAllWithFetch();
+    public List<Student> listarEstudiantes(
+            @RequestParam(required = false) Long sedeId,
+            @RequestParam(required = false) String nivel) {
+        // Filtra a nivel de base de datos con sedeId y nivel opcionales
+        List<Student> resultados = studentRepository.filtrarEstudiantes(sedeId, nivel);
+
         if (isEmpleado()) {
             List<Long> sedes = getSedesAutorizadas();
-            return todos.stream().filter(s -> estudianteEnSede(s, sedes))
+            return resultados.stream()
+                    .filter(s -> estudianteEnSede(s, sedes))
                     .collect(Collectors.toList());
         }
-        return todos;
+        return resultados;
     }
 
     @GetMapping("/{id}")
