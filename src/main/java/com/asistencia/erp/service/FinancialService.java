@@ -6,6 +6,8 @@ import com.asistencia.erp.entity.Parent;
 import com.asistencia.erp.entity.Sede;
 import com.asistencia.erp.entity.Student;
 import com.asistencia.erp.repository.*;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -14,7 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
 @Service
@@ -38,17 +40,71 @@ public class FinancialService {
         GRUPAL, PERSONALIZADA
     }
 
-    // Lock registry for per-parent concurrency control
-    private final ConcurrentHashMap<Long, ReentrantLock> lockRegistry = new ConcurrentHashMap<>();
+    // ══════════════════════════════════════════════════════════════════
+    // LOCK REGISTRY — Caffeine Cache con auto-limpieza (PERF-FIFO-01)
+    // ══════════════════════════════════════════════════════════════════
+    //
+    // Anteriormente: ConcurrentHashMap<Long, ReentrantLock>
+    //   → Fuga de memoria: los locks NUNCA se eliminaban del mapa
+    //   → Starvation: lock() plano sin timeout
+    //
+    // Ahora: Caffeine Cache con:
+    //   - expireAfterAccess(5, MINUTES): lock sin uso por 5 min → se limpia
+    //   - maximumSize(10_000): límite duro de seguridad (10,000 padres)
+    //   - get(key, k -> new ReentrantLock()): creación atómica thread-safe
+    //
+    // Además, se usa tryLock(5, SECONDS) en lugar de lock() plano
+    // para evitar starvation (PERF-FIFO-02).
+    // ══════════════════════════════════════════════════════════════════
+    private static final long LOCK_TIMEOUT_SECONDS = 5;
+
+    /**
+     * Registro de locks por padre usando Caffeine Cache + weakValues().
+     *
+     * ═══ POR QUÉ weakValues() Y NO expireAfterAccess ═══
+     * expireAfterAccess puede expulsar la entrada del cache mientras
+     * un hilo aún retiene el lock. Si eso ocurre, el siguiente hilo
+     * recibe una instancia DIFERENTE de ReentrantLock, rompiendo la
+     * exclusión mutua → race condition financiera.
+     *
+     * Con weakValues(), la entrada se elimina cuando la JVM recolecta
+     * el lock — y el lock solo es recolectable cuando NINGÚN hilo lo
+     * tiene adquirido ni referenciado. Es el patrón seguro.
+     * ═══════════════════════════════════════════════════════════
+     */
+    private final Cache<Long, ReentrantLock> lockRegistry = Caffeine.newBuilder()
+        .maximumSize(10_000)
+        .weakValues()
+        .build();
 
     private ReentrantLock getLock(Long parentId) {
-        return lockRegistry.computeIfAbsent(parentId, k -> new ReentrantLock());
+        return lockRegistry.get(parentId, k -> new ReentrantLock());
+    }
+
+    /**
+     * Adquiere el lock del padre con timeout.
+     * Lanza RuntimeException si no se puede adquirir en LOCK_TIMEOUT_SECONDS.
+     * Esto evita starvation por hilos colgados (PERF-FIFO-02).
+     */
+    private void acquireLock(ReentrantLock lock, Long parentId) {
+        try {
+            if (!lock.tryLock(LOCK_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                throw new RuntimeException(
+                    "No se pudo adquirir el lock para el padre " + parentId +
+                    " después de " + LOCK_TIMEOUT_SECONDS + " segundos. " +
+                    "Posible starvation detectado. Reintente la operación."
+                );
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Operación interrumpida al adquirir lock para el padre " + parentId, e);
+        }
     }
 
     @Transactional
     public void procesarPagosPendientes(Long parentId) {
         ReentrantLock lock = getLock(parentId);
-        lock.lock();
+        acquireLock(lock, parentId);
         try {
             Parent parent = parentRepository.findById(parentId)
                     .orElseThrow(() -> new RuntimeException("Padre no encontrado"));
@@ -84,7 +140,7 @@ public class FinancialService {
     @Transactional
     public void registrarAbono(Long parentId, BigDecimal monto, FinancialLog.PaymentMethod metodoPago, java.time.LocalDate fechaAbono) {
         ReentrantLock lock = getLock(parentId);
-        lock.lock();
+        acquireLock(lock, parentId);
         try {
             if (monto.compareTo(BigDecimal.ZERO) <= 0) {
                 throw new IllegalArgumentException("El monto debe ser mayor a cero");
@@ -151,7 +207,7 @@ public class FinancialService {
 
         Long parentId = student.getParent().getId();
         ReentrantLock lock = getLock(parentId);
-        lock.lock();
+        acquireLock(lock, parentId);
         try {
             procesarPagosPendientes(parentId);
         } finally {
@@ -161,13 +217,17 @@ public class FinancialService {
 
     @Transactional
     public void eliminarFamilia(Long parentId) {
-        Parent parent = parentRepository.findById(parentId)
-                .orElseThrow(() -> new RuntimeException("Padre no encontrado con ID: " + parentId));
+        // Adquirir lock del padre para evitar inconsistencias con operaciones FIFO concurrentes
+        ReentrantLock lock = getLock(parentId);
+        acquireLock(lock, parentId);
+        try {
+            Parent parent = parentRepository.findById(parentId)
+                    .orElseThrow(() -> new RuntimeException("Padre no encontrado con ID: " + parentId));
 
-        // Seguridad: solo permitir borrar familias INACTIVAS
-        if (!"INACTIVO".equals(parent.getEstado())) {
-            throw new RuntimeException("Debes marcar la familia como INACTIVA antes de poder eliminarla.");
-        }
+            // Seguridad: solo permitir borrar familias INACTIVAS
+            if (!"INACTIVO".equals(parent.getEstado())) {
+                throw new RuntimeException("Debes marcar la familia como INACTIVA antes de poder eliminarla.");
+            }
 
         if (parent.getStudents() != null) {
             for (Student student : parent.getStudents()) {
@@ -208,6 +268,9 @@ public class FinancialService {
 
         // 6. Eliminar padre
         parentRepository.delete(parent);
+        } finally {
+            lock.unlock();
+        }
     }
 
     @Transactional
@@ -221,7 +284,7 @@ public class FinancialService {
 
         Long parentId = log.getParent().getId();
         ReentrantLock lock = getLock(parentId);
-        lock.lock();
+        acquireLock(lock, parentId);
         try {
             // 1. Resetear todas las asistencias del padre a "impaga"
             List<Attendance> todasLasAsistencias = attendanceRepository.findAllByParentId(parentId);

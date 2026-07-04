@@ -1,6 +1,8 @@
 package com.asistencia.erp.controller;
 
 import com.asistencia.erp.dto.AttendanceDTO;
+import com.asistencia.erp.dto.FinancialLogDTO;
+import com.asistencia.erp.dto.ParentSummaryDTO;
 import com.asistencia.erp.entity.Attendance;
 import com.asistencia.erp.entity.FinancialLog;
 import com.asistencia.erp.entity.Parent;
@@ -16,6 +18,7 @@ import com.asistencia.erp.service.FinancialService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
@@ -41,12 +44,8 @@ public class FinancialController {
         List<Long> sedes = getSedesAutorizadas();
         if (sedes.isEmpty()) return ResponseEntity.status(403).body("Acceso denegado");
 
-        boolean tieneAcceso = parentRepository.findById(parentId)
-                .map(parent -> parent.getStudents() != null
-                        && parent.getStudents().stream()
-                                .flatMap(s -> s.getMatriculas().stream())
-                                .anyMatch(m -> m.getSede() != null && sedes.contains(m.getSede().getId())))
-                .orElse(false);
+        // PERF-N1-03: UNA consulta SQL (COUNT con JOIN) en lugar de cargar todo el grafo en memoria
+        boolean tieneAcceso = parentRepository.existsParentWithAccess(parentId, sedes);
 
         if (!tieneAcceso) {
             return ResponseEntity.status(403).body("Acceso denegado a los datos de este padre");
@@ -59,6 +58,7 @@ public class FinancialController {
     //METODO: POST
     //Ruta final: http://localhost:8080/api/finanzas/asistencia
     //*************************************
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/asistencia")
     public ResponseEntity<?> registrarAsistencia(
             @RequestParam Long studentId,
@@ -93,6 +93,7 @@ public class FinancialController {
     //METODO: POST
     //Ruta final: http://localhost:8080/api/finanzas/abono
     //*************************************
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/abono")
     public ResponseEntity<?> registrarAbono(
             @RequestParam Long parentId,
@@ -110,7 +111,11 @@ public class FinancialController {
 
     @GetMapping("/historial")
     public ResponseEntity<?> obtenerHistorialCaja() {
-        return ResponseEntity.ok(financialLogRepository.findAll());
+        // PERF-JACKSON-01: Usar DTO en lugar de exponer la entidad JPA directamente
+        List<FinancialLogDTO> dtos = financialLogRepository.findAll().stream()
+                .map(FinancialLogDTO::fromEntity)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(dtos);
     }
 
     @GetMapping("/historial/{parentId}")
@@ -119,10 +124,12 @@ public class FinancialController {
         ResponseEntity<?> permiso = verificarAccesoEmpleadoAPadre(parentId);
         if (permiso != null) return permiso;
 
-        List<FinancialLog> historialPadre = financialLogRepository
+        // PERF-JACKSON-01: Usar DTO en lugar de exponer la entidad JPA directamente
+        List<FinancialLogDTO> historialPadre = financialLogRepository
                 .findByParentIdOrderByFechaDesc(parentId)
                 .stream()
                 .limit(10)
+                .map(FinancialLogDTO::fromEntity)
                 .toList();
 
         return ResponseEntity.ok(historialPadre);
@@ -133,20 +140,19 @@ public class FinancialController {
     //METODO: GET
     //Ruta final: http://localhost:8080/api/finanzas/padres
     @GetMapping("/padres")
-    public List<Parent> obtenerPadres() {
+    public List<ParentSummaryDTO> obtenerPadres() {
+        // PERF-JACKSON-01: Usar DTO en lugar de exponer la entidad JPA directamente
         List<Parent> todos = parentRepository.findAll();
         if (SecurityUtils.isEmpleado()) {
             List<Long> sedes = SecurityUtils.getSedesAutorizadas();
             return todos.stream()
-                    .filter(p -> p.getStudents() != null &&
-                            p.getStudents().stream().anyMatch(s ->
-                                    s.getMatriculas() != null &&
-                                    s.getMatriculas().stream()
-                                            .anyMatch(m -> m.getSede() != null && sedes.contains(m.getSede().getId()))
-                            ))
+                    .filter(p -> parentRepository.existsParentWithAccess(p.getId(), sedes))
+                    .map(ParentSummaryDTO::fromEntity)
                     .collect(Collectors.toList());
         }
-        return todos;
+        return todos.stream()
+                .map(ParentSummaryDTO::fromEntity)
+                .collect(Collectors.toList());
     }
 
     //*************************************
@@ -164,7 +170,7 @@ public class FinancialController {
             }
             asistencias = attendanceRepository.findBySedeIdIn(sedes);
         } else {
-            asistencias = attendanceRepository.findAll();
+            asistencias = attendanceRepository.findAllWithFetch();
         }
         List<AttendanceDTO> dtos = asistencias.stream()
                 .map(AttendanceDTO::fromEntity)
@@ -176,8 +182,13 @@ public class FinancialController {
     //PUERTA 5: URL para eliminar una asistencia
     //METODO: DELETE
     //*************************************
+    @PreAuthorize("hasRole('ADMIN')")
     @DeleteMapping("/asistencia/{id}")
     public ResponseEntity<?> eliminarAsistencia(@PathVariable Long id) {
+        // Verificar que la asistencia existe antes de eliminar (SEC-BOLA-01)
+        if (!attendanceRepository.existsById(id)) {
+            return ResponseEntity.notFound().build();
+        }
         attendanceRepository.deleteById(id);
         return ResponseEntity.ok("Asistencia eliminada");
     }
@@ -192,8 +203,12 @@ public class FinancialController {
         ResponseEntity<?> permiso = verificarAccesoEmpleadoAPadre(parentId);
         if (permiso != null) return permiso;
 
-        List<Attendance> deudas = attendanceRepository
-                .findUnpaidByParentIdOrderByFechaDesc(parentId);
+        // PERF-JACKSON-01: Usar DTO en lugar de exponer la entidad JPA directamente
+        List<AttendanceDTO> deudas = attendanceRepository
+                .findUnpaidByParentIdOrderByFechaDesc(parentId)
+                .stream()
+                .map(AttendanceDTO::fromEntity)
+                .collect(Collectors.toList());
 
         return ResponseEntity.ok(deudas);
     }
@@ -203,6 +218,7 @@ public class FinancialController {
     //METODO: DELETE
     //Regla: Resta el monto del saldoAbono del Parent y re-ejecuta FIFO
     //*************************************
+    @PreAuthorize("hasRole('ADMIN')")
     @DeleteMapping("/abono/{id}")
     public ResponseEntity<?> eliminarAbono(@PathVariable Long id) {
         try {
@@ -213,6 +229,7 @@ public class FinancialController {
         }
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @Transactional
     @DeleteMapping("/deportista/{id}")
     public ResponseEntity<?> eliminarDeportista(@PathVariable Long id) {

@@ -9,6 +9,7 @@ import com.asistencia.erp.repository.*;
 import com.asistencia.erp.service.FinancialService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
@@ -123,6 +124,7 @@ public class RegistroController {
         }
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @DeleteMapping("/padre/{id}")
     public ResponseEntity<?> eliminarPadre(@PathVariable Long id) {
         try {
@@ -133,6 +135,7 @@ public class RegistroController {
         }
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/padre/{id}/inactivar")
     public ResponseEntity<?> inactivarPadre(@PathVariable Long id) {
         try {
@@ -152,6 +155,7 @@ public class RegistroController {
         }
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @Transactional
     @DeleteMapping("/deportista/{id}")
     public ResponseEntity<?> eliminarDeportista(@PathVariable Long id) {
@@ -171,6 +175,7 @@ public class RegistroController {
         }
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/deportista/{id}/retirar")
     public ResponseEntity<?> retirarDeportista(@PathVariable Long id) {
         try {

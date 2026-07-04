@@ -23,4 +23,15 @@ public interface ParentRepository extends JpaRepository<Parent, Long> {
            "WHERE EXISTS (SELECT 1 FROM Enrollment e WHERE e.student.id = s.id AND e.sede.id IN :sedesIds) " +
            "OR EXISTS (SELECT 1 FROM Attendance a WHERE a.student.id = s.id AND a.sede.id IN :sedesIds)")
     List<Parent> findParentsBySedes(@Param("sedesIds") List<Long> sedesIds);
+
+    // ═══ PERF-N1-03: Verificación de acceso EMPLEADO a padre en UNA CONSULTA ═══
+    // Reemplaza el código O(N) en Java que cargaba estudiantes y matrículas.
+    // Esta query retorna true si el padre tiene al menos un estudiante matriculado
+    // en alguna de las sedes autorizadas.
+    @Query("SELECT CASE WHEN COUNT(p) > 0 THEN true ELSE false END FROM Parent p " +
+           "JOIN p.students s " +
+           "JOIN s.matriculas m " +
+           "WHERE p.id = :parentId AND m.sede.id IN :sedesIds")
+    boolean existsParentWithAccess(@Param("parentId") Long parentId,
+                                    @Param("sedesIds") List<Long> sedesIds);
 }

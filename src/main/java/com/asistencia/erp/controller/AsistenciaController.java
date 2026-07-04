@@ -26,10 +26,11 @@ public class AsistenciaController {
         if (isEmpleado()) {
             List<Long> sedes = getSedesAutorizadas();
             if (sedes.isEmpty()) return List.of();
-            // Filtro directo en BD por sede, sin cargar todo en memoria
+            // PERF-N1-01: JOIN FETCH incluido en findBySedeIdIn
             return attendanceRepository.findBySedeIdIn(sedes);
         }
-        return attendanceRepository.findAll();
+        // PERF-N1-01: findAllWithFetch con JOIN FETCH para sede y student
+        return attendanceRepository.findAllWithFetch();
     }
 
     private boolean estudianteEnSede(Student s, List<Long> sedesIds) {

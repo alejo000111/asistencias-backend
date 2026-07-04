@@ -8,6 +8,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -22,15 +23,13 @@ import java.util.Arrays;
 
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity  // Permite usar @PreAuthorize en los controladores
 @RequiredArgsConstructor
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
 
-    @Value("${spring.jpa.hibernate.ddl-auto:validate}")
-    private String ddlAutoEnv;
-
-    @Value("${cors.allowed-origins:https://tu-app.vercel.app}")
+    @Value("${cors.allowed-origins:}")
     private String corsAllowedOrigins;
 
     @Bean
@@ -43,11 +42,8 @@ public class SecurityConfig {
                 // Público
                 .requestMatchers("/api/auth/login").permitAll()
                 .requestMatchers("/api/public/**").permitAll()
-                // Solo ADMIN
-                .requestMatchers("/api/finanzas/asistencia").hasRole("ADMIN")
-                .requestMatchers("/api/finanzas/abono").hasRole("ADMIN")
-                .requestMatchers("/api/finanzas/historial").hasRole("ADMIN")
-                .requestMatchers(HttpMethod.DELETE, "/api/finanzas/**").hasRole("ADMIN")
+                // Solo ADMIN — respaldo a nivel HTTP (además de @PreAuthorize a nivel de método)
+                .requestMatchers("/api/finanzas/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.GET, "/api/sedes").hasAnyRole("ADMIN", "EMPLEADO")
                 .requestMatchers("/api/sedes/**").hasRole("ADMIN")
                 .requestMatchers("/api/empleados/**").hasRole("ADMIN")
@@ -65,13 +61,37 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         var configuration = new CorsConfiguration();
 
-        // DETECTOR AUTOMÁTICO DE ENTORNO
-        // Staging (create/update): patrón abierto para Vercel + localhost, con credentials para Axios
-        if ("create".equals(ddlAutoEnv) || "update".equals(ddlAutoEnv)) {
-            configuration.setAllowedOriginPatterns(Arrays.asList("https://*.vercel.app", "http://localhost:*"));
-        } else {
-            // Producción (validate): solo orígenes explícitos de la variable cors.allowed-origins
-            configuration.setAllowedOrigins(Arrays.asList(corsAllowedOrigins.split(",")));
+        // ============================================================
+        // 🔒 ORÍGENES LOCALES — siempre permitidos
+        //    Sin importar el entorno (ddl-auto, perfil, etc.)
+        // ============================================================
+        configuration.addAllowedOriginPattern("http://localhost:*");
+        configuration.addAllowedOriginPattern("http://127.0.0.1:*");
+
+        // ============================================================
+        // 🌐 ORÍGENES DE PRODUCCIÓN / STAGING
+        //    Lectura jerárquica:
+        //    1. System.getenv("CORS_ALLOWED_ORIGINS") — Render dashboard
+        //    2. @Value("${cors.allowed-origins}")      — application.properties o System property
+        //    3. Si ambos están vacíos → solo localhost (seguro para dev local)
+        // ============================================================
+        String origins = System.getenv("CORS_ALLOWED_ORIGINS");
+        if (origins == null || origins.isBlank()) {
+            origins = corsAllowedOrigins;
+        }
+
+        if (origins != null && !origins.isBlank()) {
+            for (String origin : origins.split(",")) {
+                origin = origin.trim();
+                if (!origin.isEmpty()) {
+                    // Si tiene comodín (*), usar pattern; si no, origen exacto
+                    if (origin.contains("*")) {
+                        configuration.addAllowedOriginPattern(origin);
+                    } else {
+                        configuration.addAllowedOrigin(origin);
+                    }
+                }
+            }
         }
 
         configuration.setAllowCredentials(true);

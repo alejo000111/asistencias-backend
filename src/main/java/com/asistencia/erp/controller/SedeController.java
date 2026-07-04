@@ -25,15 +25,15 @@ public class SedeController {
 
     @GetMapping
     public List<Sede> listarSedes() {
-        // ADMIN ve todas; EMPLEADO solo las que tiene autorizadas
+        // PERF-N1-02: Usar queries con LEFT JOIN FETCH para cargar grupos en 1 consulta
         if (SecurityUtils.isAdmin()) {
-            return sedeRepository.findAll();
+            return sedeRepository.findAllWithGrupos();
         }
         List<Long> idsPermitidos = SecurityUtils.getSedesAutorizadas();
         if (idsPermitidos.isEmpty()) {
             return List.of();
         }
-        return sedeRepository.findAllById(idsPermitidos);
+        return sedeRepository.findByIdInWithGrupos(idsPermitidos);
     }
 
     @PostMapping

@@ -21,7 +21,7 @@ public class Sede {
     @Column(name = "activa", nullable = false)
     private Boolean activa = true;
 
-    @ElementCollection(fetch = FetchType.EAGER)
+    @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "sede_grupos", joinColumns = @JoinColumn(name = "sede_id"))
     private List<GrupoSede> grupos = new ArrayList<>();
 }

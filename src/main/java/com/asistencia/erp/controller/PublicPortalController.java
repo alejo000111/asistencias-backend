@@ -130,7 +130,8 @@ public class PublicPortalController {
         // Construir diccionario de estilos de grupos desde todas las sedes activas
         // (nombre -> {emoji, colorHex}) para que el frontend pueda aplicar colores y emojis
         // sin depender del objeto sede (que se limpia por seguridad)
-        List<Sede> sedes = sedeRepository.findAll();
+        // PERF-N1-02: findAllActivasWithGrupos() con LEFT JOIN FETCH elimina N+1 residual
+        List<Sede> sedes = sedeRepository.findAllActivasWithGrupos();
         Map<String, Map<String, String>> estilosGrupos = new HashMap<>();
         for (Sede sede : sedes) {
             if (Boolean.TRUE.equals(sede.getActiva()) && sede.getGrupos() != null) {
