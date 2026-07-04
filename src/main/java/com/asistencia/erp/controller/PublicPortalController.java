@@ -24,6 +24,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.beans.factory.annotation.Value;
+
 @RestController
 @RequestMapping("/api/public")
 @RequiredArgsConstructor
@@ -33,6 +35,20 @@ public class PublicPortalController {
     private final FinancialLogRepository financialLogRepository;
     private final AttendanceRepository attendanceRepository;
     private final SedeRepository sedeRepository;
+
+    @Value("${precios.grupal}")
+    private BigDecimal precioGrupal;
+
+    @Value("${precios.personalizada}")
+    private BigDecimal precioPersonalizada;
+
+    @GetMapping("/precios")
+    public Map<String, BigDecimal> obtenerPrecios() {
+        return Map.of(
+            "grupal", precioGrupal,
+            "personalizada", precioPersonalizada
+        );
+    }
 
     @GetMapping("/portal/{secretToken}")
     @Transactional(readOnly = true)

@@ -238,25 +238,5 @@ public class FinancialController {
         }
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
-    @Transactional
-    @DeleteMapping("/deportista/{id}")
-    public ResponseEntity<?> eliminarDeportista(@PathVariable Long id) {
-        try {
-            Student student = studentRepository.findById(id).orElse(null);
-            if (student == null) return ResponseEntity.notFound().build();
-
-            List<Attendance> asistencias = attendanceRepository.findByStudentId(id);
-            for (Attendance a : asistencias) {
-                a.setNombreEstudianteHistorico(student.getNombreCompleto());
-                a.setStudent(null);
-            }
-            attendanceRepository.saveAll(asistencias);
-
-            studentRepository.delete(student);
-            return ResponseEntity.ok("Eliminado");
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
-        }
-    }
+    // Endpoint unificado en RegistroController.eliminarDeportista() vía FinancialService
 }

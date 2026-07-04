@@ -1,7 +1,6 @@
 package com.asistencia.erp.controller;
 
 import com.asistencia.erp.entity.Attendance;
-import com.asistencia.erp.entity.Student;
 import com.asistencia.erp.repository.AttendanceRepository;
 import com.asistencia.erp.repository.StudentRepository;
 import com.asistencia.erp.security.SecurityUtils;
@@ -33,22 +32,13 @@ public class AsistenciaController {
         return attendanceRepository.findAllWithFetch();
     }
 
-    private boolean estudianteEnSede(Student s, List<Long> sedesIds) {
-        if (s.getMatriculas() != null &&
-                s.getMatriculas().stream().anyMatch(m -> m.getSede() != null && sedesIds.contains(m.getSede().getId()))) {
-            return true;
-        }
-        return s.getAttendances() != null &&
-                s.getAttendances().stream().anyMatch(a -> a.getSede() != null && sedesIds.contains(a.getSede().getId()));
-    }
-
     @GetMapping("/estudiante/{studentId}")
     public ResponseEntity<?> listarAsistenciasPorEstudiante(@PathVariable Long studentId) {
         return studentRepository.findById(studentId)
                 .map(student -> {
                     if (isEmpleado()) {
                         List<Long> sedes = getSedesAutorizadas();
-                        if (!estudianteEnSede(student, sedes)) {
+                        if (!SecurityUtils.estudianteEnSede(student, sedes)) {
                             return ResponseEntity.status(403).body("Acceso denegado a esta sede");
                         }
                     }

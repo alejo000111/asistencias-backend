@@ -6,6 +6,8 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import java.util.Collections;
 import java.util.List;
 
+import com.asistencia.erp.entity.Student;
+
 public class SecurityUtils {
 
     public static JwtUserPrincipal getCurrentUser() {
@@ -32,5 +34,19 @@ public class SecurityUtils {
             return user.getSedesAutorizadas();
         }
         return Collections.emptyList();
+    }
+
+    /**
+     * Verifica si un estudiante pertenece a alguna de las sedes autorizadas.
+     * Revisa matrículas activas primero, luego asistencias históricas.
+     * Centralizada aquí para evitar duplicación (antes estaba en AsistenciaController y ClienteController).
+     */
+    public static boolean estudianteEnSede(Student s, List<Long> sedesIds) {
+        if (s.getMatriculas() != null &&
+                s.getMatriculas().stream().anyMatch(m -> m.getSede() != null && sedesIds.contains(m.getSede().getId()))) {
+            return true;
+        }
+        return s.getAttendances() != null &&
+                s.getAttendances().stream().anyMatch(a -> a.getSede() != null && sedesIds.contains(a.getSede().getId()));
     }
 }

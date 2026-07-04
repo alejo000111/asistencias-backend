@@ -2,9 +2,7 @@ package com.asistencia.erp.repository;
 
 import com.asistencia.erp.entity.Student;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import java.util.List;
 
@@ -13,8 +11,13 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
     List<Student> findByParentIdAndEstado(Long parentId, Student.StudentStatus estado);
     List<Student> findByMatriculasIsEmpty();
 
-    // Limpieza manual de la tabla legada student_sedes antes de borrar un estudiante
-    @Modifying
-    @Query(value = "DELETE FROM student_sedes WHERE student_id = :studentId", nativeQuery = true)
-    void deleteFromStudentSedes(@Param("studentId") Long studentId);
+    /**
+     * Trae estudiantes con todas sus colecciones en UNA SOLA consulta (JOIN FETCH).
+     * Elimina el N+1 que ocurría al serializar Student con matriculas y parent (PERF-N1-01).
+     */
+    @Query("SELECT DISTINCT s FROM Student s " +
+           "LEFT JOIN FETCH s.matriculas m " +
+           "LEFT JOIN FETCH m.sede " +
+           "LEFT JOIN FETCH s.parent")
+    List<Student> findAllWithFetch();
 }

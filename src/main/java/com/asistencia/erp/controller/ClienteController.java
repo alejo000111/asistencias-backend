@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import static com.asistencia.erp.security.SecurityUtils.*;
+
 @RestController
 @RequestMapping("/api/clientes")
 @RequiredArgsConstructor
@@ -20,21 +22,10 @@ public class ClienteController {
     private final ParentRepository parentRepository;
     private final StudentRepository studentRepository;
 
-    private boolean estudianteEnSede(Student s, List<Long> sedesIds) {
-        // Coincide por matrícula activa
-        if (s.getMatriculas() != null &&
-                s.getMatriculas().stream().anyMatch(m -> m.getSede() != null && sedesIds.contains(m.getSede().getId()))) {
-            return true;
-        }
-        // O por asistencias históricas (estudiante desmatriculado con historial)
-        return s.getAttendances() != null &&
-                s.getAttendances().stream().anyMatch(a -> a.getSede() != null && sedesIds.contains(a.getSede().getId()));
-    }
-
     @GetMapping
     public List<Parent> listarClientes() {
-        if (SecurityUtils.isEmpleado()) {
-            List<Long> sedes = SecurityUtils.getSedesAutorizadas();
+        if (isEmpleado()) {
+            List<Long> sedes = getSedesAutorizadas();
             if (sedes.isEmpty()) return List.of();
             // Consulta JPQL optimizada con JOIN, filtra a nivel BD
             return parentRepository.findParentsBySedes(sedes);
@@ -44,9 +35,10 @@ public class ClienteController {
 
     @GetMapping("/estudiantes")
     public List<Student> listarEstudiantes() {
-        List<Student> todos = studentRepository.findAll();
-        if (SecurityUtils.isEmpleado()) {
-            List<Long> sedes = SecurityUtils.getSedesAutorizadas();
+        // PERF-N1-01: findAllWithFetch() con JOIN FETCH evita N+1 en serialización
+        List<Student> todos = studentRepository.findAllWithFetch();
+        if (isEmpleado()) {
+            List<Long> sedes = getSedesAutorizadas();
             return todos.stream().filter(s -> estudianteEnSede(s, sedes))
                     .collect(Collectors.toList());
         }
@@ -57,8 +49,8 @@ public class ClienteController {
     public ResponseEntity<?> obtenerCliente(@PathVariable Long id) {
         return parentRepository.findById(id)
                 .map(parent -> {
-                    if (SecurityUtils.isEmpleado()) {
-                        List<Long> sedes = SecurityUtils.getSedesAutorizadas();
+                    if (isEmpleado()) {
+                        List<Long> sedes = getSedesAutorizadas();
                         boolean tieneAcceso = parent.getStudents() != null &&
                                 parent.getStudents().stream().anyMatch(s -> estudianteEnSede(s, sedes));
                         if (!tieneAcceso) {

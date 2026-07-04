@@ -233,13 +233,10 @@ public class FinancialService {
             for (Student student : parent.getStudents()) {
                 Long sid = student.getId();
 
-                // 1. Forzar DELETE en tabla legada student_sedes (FK constraint) vía SQL nativo
-                studentRepository.deleteFromStudentSedes(sid);
-
-                // 2. Limpiar enrolamientos (tabla enrollments)
+                // 1. Limpiar enrolamientos vía JPA (orphanRemoval=true elimina de enrollments)
                 student.getMatriculas().clear();
 
-                // 3. Orfanar asistencias vía SQL nativo (conserva historial)
+                // 2. Orfanar asistencias vía SQL nativo (conserva historial)
                 attendanceRepository.orphanAttendancesByStudentId(sid);
 
                 studentRepository.save(student);
@@ -271,6 +268,24 @@ public class FinancialService {
         } finally {
             lock.unlock();
         }
+    }
+
+    /**
+     * Elimina un deportista, orfanando sus asistencias (conserva el historial
+     * con el nombre del estudiante como respaldo) y luego borra la entidad.
+     */
+    @Transactional
+    public void eliminarDeportista(Long studentId) {
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> new RuntimeException("Deportista no encontrado"));
+
+        // Orfanar asistencias: desvincula student pero conserva el historial
+        attendanceRepository.orphanAttendancesByStudentId(studentId);
+
+        // Eliminar matrículas vía JPQL (más seguro que native query)
+        student.getMatriculas().clear();
+
+        studentRepository.delete(student);
     }
 
     @Transactional

@@ -54,6 +54,7 @@ public class RegistroController {
         return matriculas;
     }
 
+    @Transactional
     @PostMapping("/deportista")
     public ResponseEntity<?> registrarDeportista(@RequestBody com.asistencia.erp.dto.RegistrarDeportistaRequest req) {
         try {
@@ -156,19 +157,10 @@ public class RegistroController {
     }
 
     @PreAuthorize("hasRole('ADMIN')")
-    @Transactional
     @DeleteMapping("/deportista/{id}")
     public ResponseEntity<?> eliminarDeportista(@PathVariable Long id) {
         try {
-            Student student = studentRepository.findById(id)
-                    .orElseThrow(() -> new RuntimeException("Deportista no encontrado"));
-            List<Attendance> asistencias = attendanceRepository.findByStudentId(id);
-            for (Attendance a : asistencias) {
-                a.setNombreEstudianteHistorico(student.getNombreCompleto());
-                a.setStudent(null);
-            }
-            attendanceRepository.saveAll(asistencias);
-            studentRepository.delete(student);
+            financialService.eliminarDeportista(id);
             return ResponseEntity.ok("Deportista eliminado. El historial de asistencias se conserva.");
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Error: " + e.getMessage());
