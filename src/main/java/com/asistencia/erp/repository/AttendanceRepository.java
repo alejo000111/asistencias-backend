@@ -66,4 +66,7 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
     @Modifying
     @Query(value = "UPDATE attendances SET student_id = NULL, nombre_estudiante_historico = COALESCE(nombre_estudiante_historico, (SELECT nombre_completo FROM students WHERE id = :studentId)) WHERE student_id = :studentId", nativeQuery = true)
     void orphanAttendancesByStudentId(@Param("studentId") Long studentId);
+
+    @Query("SELECT a FROM Attendance a WHERE a.sede.id = :sedeId")
+    List<Attendance> findBySedeId(@Param("sedeId") Long sedeId);
 }

@@ -14,7 +14,7 @@ public interface SedeRepository extends JpaRepository<Sede, Long> {
 
     // Carga sedes con grupos en UNA SOLA consulta (LEFT JOIN FETCH)
     // para los endpoints que necesitan los grupos (PERF-N1-02)
-    @Query("SELECT DISTINCT s FROM Sede s LEFT JOIN FETCH s.grupos")
+    @Query("SELECT DISTINCT s FROM Sede s LEFT JOIN FETCH s.grupos ORDER BY s.id ASC")
     List<Sede> findAllWithGrupos();
 
     // Carga sedes activas con grupos en una sola consulta

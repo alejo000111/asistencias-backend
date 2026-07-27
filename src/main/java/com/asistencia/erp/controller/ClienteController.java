@@ -21,6 +21,7 @@ public class ClienteController {
 
     private final ParentRepository parentRepository;
     private final StudentRepository studentRepository;
+    private final com.asistencia.erp.service.ExcelImportService excelImportService;
 
     @GetMapping
     public List<Parent> listarClientes() {
@@ -64,5 +65,49 @@ public class ClienteController {
                     return ResponseEntity.ok(parent);
                 })
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    @PostMapping(value = "/importar-excel", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<?> importarExcel(@RequestParam("file") org.springframework.web.multipart.MultipartFile file) {
+        try {
+            java.util.Map<String, Object> resultado = excelImportService.importarExcel(file);
+            return ResponseEntity.ok(resultado);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(java.util.Map.of("error", e.getMessage()));
+        }
+    }
+
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    @PostMapping("/deshacer-importacion/{batchId}")
+    public ResponseEntity<?> deshacerImportacion(@PathVariable String batchId) {
+        try {
+            java.util.Map<String, Object> resultado = excelImportService.deshacerImportacion(batchId);
+            return ResponseEntity.ok(resultado);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(java.util.Map.of("error", e.getMessage()));
+        }
+    }
+
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    @GetMapping("/exportar-excel")
+    public ResponseEntity<byte[]> exportarClientesExcel() {
+        byte[] excelBytes = excelImportService.exportarClientesExcel();
+        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+        headers.setContentType(org.springframework.http.MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+        headers.setContentDispositionFormData("attachment", "clientes_deportistas.xlsx");
+        headers.setCacheControl("must-revalidate, post-check=0, pre-check=0");
+        return new ResponseEntity<>(excelBytes, headers, org.springframework.http.HttpStatus.OK);
+    }
+
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    @GetMapping("/plantilla-excel")
+    public ResponseEntity<byte[]> descargarPlantillaExcel() {
+        byte[] excelBytes = excelImportService.generarPlantillaExcel();
+        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+        headers.setContentType(org.springframework.http.MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+        headers.setContentDispositionFormData("attachment", "plantilla_deportistas.xlsx");
+        headers.setCacheControl("must-revalidate, post-check=0, pre-check=0");
+        return new ResponseEntity<>(excelBytes, headers, org.springframework.http.HttpStatus.OK);
     }
 }

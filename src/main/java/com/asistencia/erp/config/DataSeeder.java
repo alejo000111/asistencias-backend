@@ -12,11 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.List;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 
 @Component
 @RequiredArgsConstructor
@@ -34,33 +30,61 @@ public class DataSeeder implements CommandLineRunner {
     @Override
     @Transactional
     public void run(String... args) {
-        // 1. Crear sede por defecto si no existe
+        // 1. Crear o asegurar Sede Principal con sus grupos si no existen
         Sede sedePrincipal = sedeRepository.findByNombre("Sede Principal")
                 .orElseGet(() -> {
                     Sede s = new Sede();
                     s.setNombre("Sede Principal");
+                    s.setActiva(true);
                     return sedeRepository.save(s);
                 });
-        log.info("Sede por defecto: {} (ID={})", sedePrincipal.getNombre(), sedePrincipal.getId());
 
-        // 2. Asegurar grupos en Sede Principal (forzar si estan vacios o legacy)
-        boolean necesitaMigrar = sedePrincipal.getGrupos() == null
-            || sedePrincipal.getGrupos().isEmpty()
-            || sedePrincipal.getGrupos().get(0).getNombre() == null
-            || sedePrincipal.getGrupos().get(0).getNombre().isBlank();
-        if (necesitaMigrar) {
-            sedePrincipal.getGrupos().clear();
+        if (sedePrincipal.getGrupos() == null || sedePrincipal.getGrupos().isEmpty()) {
             sedePrincipal.setGrupos(new ArrayList<>(Arrays.asList(
-                new GrupoSede("Iniciación", "🌱", "#059669"),
-                new GrupoSede("Avanzado", "🔥", "#ea580c")
+                    new GrupoSede("Iniciación", "🌱", "#059669"),
+                    new GrupoSede("Avanzado", "🔥", "#ea580c")
             )));
             sedeRepository.save(sedePrincipal);
-            log.info("Grupos con objetos GrupoSede agregados/actualizados en Sede Principal");
-        } else {
-            log.info("Grupos ya tienen objetos GrupoSede, saltando actualizacion");
+            log.info("Grupos creados en Sede Principal.");
         }
 
-        // 3. Migrar estudiantes sin matriculas: crear Enrollment hacia Sede Principal
+        // 1b. Crear o asegurar Sede Norte si no existe
+        Sede sedeNorte = sedeRepository.findByNombre("Sede Norte")
+                .orElseGet(() -> {
+                    Sede s = new Sede();
+                    s.setNombre("Sede Norte");
+                    s.setActiva(true);
+                    return sedeRepository.save(s);
+                });
+
+        if (sedeNorte.getGrupos() == null || sedeNorte.getGrupos().isEmpty()) {
+            sedeNorte.setGrupos(new ArrayList<>(Arrays.asList(
+                    new GrupoSede("Iniciación", "🌱", "#059669"),
+                    new GrupoSede("Avanzado", "🔥", "#ea580c")
+            )));
+            sedeRepository.save(sedeNorte);
+            log.info("Grupos creados en Sede Norte.");
+        }
+
+        // 1c. Crear o asegurar Colina si no existe
+        Sede sedeColina = sedeRepository.findByNombre("Colina")
+                .orElseGet(() -> {
+                    Sede s = new Sede();
+                    s.setNombre("Colina");
+                    s.setActiva(true);
+                    return sedeRepository.save(s);
+                });
+
+        if (sedeColina.getGrupos() == null || sedeColina.getGrupos().isEmpty()) {
+            sedeColina.setGrupos(new ArrayList<>(Arrays.asList(
+                    new GrupoSede("Iniciación", "🌱", "#059669"),
+                    new GrupoSede("Grandes", "🦉", "#2563eb")
+            )));
+            sedeRepository.save(sedeColina);
+            log.info("Grupos creados en Sede Colina.");
+        }
+
+        // 2. Migrar estudiantes sin matriculas (solo si aplica)
         List<Student> estudiantesSinMatricula = studentRepository.findByMatriculasIsEmpty();
         if (!estudiantesSinMatricula.isEmpty()) {
             log.info("Creando Enrollment para {} estudiantes sin matricula...", estudiantesSinMatricula.size());
@@ -74,10 +98,9 @@ public class DataSeeder implements CommandLineRunner {
             studentRepository.saveAll(estudiantesSinMatricula);
         }
 
-        // 3b. Migrar enrollments existentes con nivel antiguo a version con emoji
+        // 3. Migrar enrollments existentes con nivel antiguo a versión con emoji
         List<Enrollment> sinEmoji = enrollmentRepository.findByNivel("Iniciacion");
         if (!sinEmoji.isEmpty()) {
-            log.info("Actualizando {} enrollments 'Iniciacion' -> '🌱 Iniciación'...", sinEmoji.size());
             for (Enrollment e : sinEmoji) {
                 e.setNivel("🌱 Iniciación");
             }
@@ -85,31 +108,62 @@ public class DataSeeder implements CommandLineRunner {
         }
         List<Enrollment> sinEmoji2 = enrollmentRepository.findByNivel("Avanzado");
         if (!sinEmoji2.isEmpty()) {
-            log.info("Actualizando {} enrollments 'Avanzado' -> '🔥 Avanzado'...", sinEmoji2.size());
             for (Enrollment e : sinEmoji2) {
                 e.setNivel("🔥 Avanzado");
             }
             enrollmentRepository.saveAll(sinEmoji2);
         }
 
-        // 4. Crear usuario ADMIN si no existe
-        if (appUserRepository.findByUsername("admin").isEmpty()) {
-            AppUser admin = new AppUser();
-            admin.setUsername("admin");
-            admin.setPasswordHash(passwordEncoder.encode("GOAT"));
-            admin.setRole(AppUser.Role.ADMIN);
-            admin.setSedesAutorizadas(Set.of(sedePrincipal));
-            appUserRepository.save(admin);
-            log.info("Usuario ADMIN creado: admin / GOAT");
+        // 3b. Migrar estudiantes existentes sin fecha de nacimiento asignándoles una fecha calculada según su edad
+        List<Student> estudiantesSinFecha = studentRepository.findAll().stream()
+                .filter(s -> s.getFechaNacimiento() == null)
+                .toList();
+
+        if (!estudiantesSinFecha.isEmpty()) {
+            log.info("Asignando fechaNacimiento a {} estudiantes existentes con fecha nula...", estudiantesSinFecha.size());
+            for (Student s : estudiantesSinFecha) {
+                int edad = (s.getEdad() != null && s.getEdad() > 0) ? s.getEdad() : 10;
+                int anioNacimiento = LocalDate.now().getYear() - edad;
+                s.setFechaNacimiento(LocalDate.of(anioNacimiento, 5, 15));
+                s.setEdad(edad);
+            }
+            studentRepository.saveAll(estudiantesSinFecha);
         }
 
-        // 5. Datos demo si BD vacia
+        // 4. Crear/Actualizar usuario ADMIN si no existe y vincular sedes autorizadas
+        List<Sede> todasLasSedes = sedeRepository.findAll();
+        AppUser admin = appUserRepository.findByUsername("admin").orElseGet(() -> {
+            AppUser a = new AppUser();
+            a.setUsername("admin");
+            a.setPasswordHash(passwordEncoder.encode("GOAT"));
+            a.setRole(AppUser.Role.ADMIN);
+            return a;
+        });
+
+        admin.setSedesAutorizadas(new HashSet<>(todasLasSedes));
+        appUserRepository.save(admin);
+        log.info("Usuario ADMIN garantizado con {} sedes autorizadas.", todasLasSedes.size());
+
+        // 4b. Crear usuario SUPERADMIN si no existe (contraseña: SUPERGOAT)
+        appUserRepository.findByUsername("superadmin").orElseGet(() -> {
+            AppUser superAdmin = new AppUser();
+            superAdmin.setUsername("superadmin");
+            superAdmin.setPasswordHash(passwordEncoder.encode("SUPERGOAT"));
+            superAdmin.setRole(AppUser.Role.SUPERADMIN);
+            superAdmin.setClubEstado(AppUser.ClubEstado.ACTIVO);
+            superAdmin.setSedesAutorizadas(new HashSet<>());  // SUPERADMIN no tiene sedes propias
+            AppUser saved = appUserRepository.save(superAdmin);
+            log.info("Usuario SUPERADMIN creado. Contraseña inicial: SUPERGOAT — ¡cambiar en producción!");
+            return saved;
+        });
+
+        // 5. Insertar datos demo ÚNICAMENTE si la base de datos está vacía (0 padres)
         long parentCount = parentRepository.count();
         if (parentCount == 0) {
-            log.info("Insertando datos semilla...");
+            log.info("Base de datos vacía. Insertando datos semilla demo...");
 
             Parent demoParent = new Parent();
-            demoParent.setNombreCompleto("Carlos Perez (Demo)");
+            demoParent.setNombreCompleto("Carlos Pérez (Demo)");
             demoParent.setTelefono("3001112233");
             demoParent.setEstado("ACTIVO");
             demoParent.setSaldoAbono(BigDecimal.ZERO);
@@ -118,7 +172,7 @@ public class DataSeeder implements CommandLineRunner {
 
             Student demoStudent = new Student();
             demoStudent.setParent(demoParent);
-            demoStudent.setNombreCompleto("Santiago Perez");
+            demoStudent.setNombreCompleto("Santiago Pérez");
             demoStudent.setEdad(10);
             demoStudent.setFechaNacimiento(LocalDate.of(2016, 3, 15));
             demoStudent.setEstado(Student.StudentStatus.ACTIVO);
@@ -126,12 +180,12 @@ public class DataSeeder implements CommandLineRunner {
             e1.setStudent(demoStudent);
             e1.setSede(sedePrincipal);
             e1.setNivel("🌱 Iniciación");
-            demoStudent.setMatriculas(new ArrayList<>(java.util.List.of(e1)));
+            demoStudent.setMatriculas(new ArrayList<>(List.of(e1)));
             studentRepository.save(demoStudent);
 
             Student demoStudent2 = new Student();
             demoStudent2.setParent(demoParent);
-            demoStudent2.setNombreCompleto("Valentina Perez");
+            demoStudent2.setNombreCompleto("Valentina Pérez");
             demoStudent2.setEdad(12);
             demoStudent2.setFechaNacimiento(LocalDate.of(2014, 7, 22));
             demoStudent2.setEstado(Student.StudentStatus.ACTIVO);
@@ -139,12 +193,10 @@ public class DataSeeder implements CommandLineRunner {
             e2.setStudent(demoStudent2);
             e2.setSede(sedePrincipal);
             e2.setNivel("🔥 Avanzado");
-            demoStudent2.setMatriculas(new ArrayList<>(java.util.List.of(e2)));
+            demoStudent2.setMatriculas(new ArrayList<>(List.of(e2)));
             studentRepository.save(demoStudent2);
 
-            log.info("Datos semilla insertados: 1 padre, 2 deportistas.");
-        } else {
-            log.info("BD con {} registros existentes.", parentCount);
+            log.info("Datos semilla demo insertados correctamente.");
         }
     }
 }

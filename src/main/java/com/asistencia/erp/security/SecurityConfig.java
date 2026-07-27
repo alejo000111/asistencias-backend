@@ -28,6 +28,7 @@ import java.util.Arrays;
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
+    private final SuspensionFilter suspensionFilter;
 
     @Value("${cors.allowed-origins:}")
     private String corsAllowedOrigins;
@@ -42,17 +43,23 @@ public class SecurityConfig {
                 // Público
                 .requestMatchers("/api/auth/login").permitAll()
                 .requestMatchers("/api/public/**").permitAll()
+                // Exclusivo SUPERADMIN
+                .requestMatchers("/api/superadmin/**").hasRole("SUPERADMIN")
                 // Solo ADMIN — respaldo a nivel HTTP (además de @PreAuthorize a nivel de método)
                 .requestMatchers("/api/finanzas/**").hasAnyRole("ADMIN", "EMPLEADO")
                 .requestMatchers(HttpMethod.GET, "/api/sedes").hasAnyRole("ADMIN", "EMPLEADO")
                 .requestMatchers("/api/sedes/**").hasRole("ADMIN")
                 .requestMatchers("/api/empleados/**").hasRole("ADMIN")
+                // Config de cobro — solo ADMIN del club
+                .requestMatchers("/api/config/**").hasRole("ADMIN")
                 // ADMIN o EMPLEADO
                 .requestMatchers("/api/clientes/**").hasAnyRole("ADMIN", "EMPLEADO")
                 .requestMatchers("/api/asistencias/**").hasAnyRole("ADMIN", "EMPLEADO")
                 .anyRequest().authenticated()
             )
-            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+            // SuspensionFilter después de JwtAuthFilter — bloqueo granular por mora
+            .addFilterAfter(suspensionFilter, jwtAuthFilter.getClass());
 
         return http.build();
     }
