@@ -1000,6 +1000,8 @@ public class ExcelImportService {
              ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
             CellStyle headerStyle = crearEstiloEncabezado(workbook);
+            CellStyle lockedHeaderStyle = crearEstiloEncabezadoBloqueado(workbook);
+            CellStyle lockedCellStyle = crearEstiloCeldaBloqueada(workbook);
             CellStyle dateStyle = crearEstiloFecha(workbook);
             CellStyle currencyStyle = crearEstiloMoneda(workbook);
 
@@ -1007,6 +1009,22 @@ public class ExcelImportService {
             ClubConfig.EsquemaCobro esquema = resolverEsquemaActual();
             ClubConfig config = clubId != null ? clubConfigRepository.findByAdminId(clubId).orElse(null) : null;
             ColumnasPlantilla columnas = construirColumnas(config, esquema, true);
+
+            // Igual que en la plantilla: se agregan las hojas de referencia con las sedes/grupos y
+            // planes REALES del club, para que el archivo exportado quede tan completo como la plantilla.
+            List<Sede> sedes = clubId != null ? sedeRepository.findAllActivasWithGrupos(clubId) : List.of();
+            List<PlanMensualidad> planes = clubId != null
+                    ? planMensualidadRepository.findByClubIdWithCupos(clubId).stream()
+                        .filter(p -> Boolean.TRUE.equals(p.getActivo()))
+                        .toList()
+                    : List.of();
+            if (SecurityUtils.isEmpleado()) {
+                Set<Long> sedesPermitidasRef = new HashSet<>(SecurityUtils.getSedesAutorizadas());
+                sedes = sedes.stream().filter(s -> sedesPermitidasRef.contains(s.getId())).toList();
+                planes = planes.stream().filter(p -> p.getSede() != null && sedesPermitidasRef.contains(p.getSede().getId())).toList();
+            }
+            crearHojaSedesGrupos(workbook, sedes, lockedHeaderStyle, lockedCellStyle);
+            crearHojaPlanes(workbook, planes, config, lockedHeaderStyle, lockedCellStyle, currencyStyle);
 
             // SEC: exportar únicamente los acudientes del club del usuario autenticado
             List<Parent> todosLosPadres = parentRepository.findByClubId(clubId);
@@ -1031,6 +1049,8 @@ public class ExcelImportService {
             // Hoja 2: Deportistas Inactivos
             Sheet sheetInactivos = workbook.createSheet("Deportistas Inactivos");
             construirHojaClientes(sheetInactivos, inactivos, config, columnas, headerStyle, dateStyle, currencyStyle, sedesPermitidas);
+
+            workbook.setActiveSheet(workbook.getSheetIndex(sheetActivos));
 
             workbook.write(out);
             return out.toByteArray();

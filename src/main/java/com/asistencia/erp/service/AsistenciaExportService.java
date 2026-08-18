@@ -19,17 +19,16 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
 /**
  * FASE 3 — Servicio de exportación de planillas de asistencia en Excel.
  *
- * Genera planillas .xlsx (o un .zip con una planilla por sede cuando se exportan
- * varias sedes a la vez) con las asistencias filtradas por sede, nivel y rango de fechas.
- * Cada sede se organiza en tablas separadas por día, y las columnas mostradas dependen
- * del esquema de cobro del club (MENSUALIDAD, PAQUETE o POR_CLASE), ya que a cada uno
- * le interesan datos distintos del historial.
+ * Genera un único .xlsx con las asistencias filtradas por sede, nivel y rango de fechas.
+ * Cuando el resultado abarca varias sedes (sin filtrar por una sede puntual), cada sede
+ * se pone en su propia hoja dentro del MISMO archivo — más fácil de revisar que un .zip
+ * con un archivo suelto por sede. Dentro de cada hoja, los registros se organizan en tablas
+ * separadas por día, y las columnas mostradas dependen del esquema de cobro del club
+ * (MENSUALIDAD, PAQUETE o POR_CLASE), ya que a cada uno le interesan datos distintos.
  */
 @Service
 @RequiredArgsConstructor
@@ -50,8 +49,8 @@ public class AsistenciaExportService {
 
     /**
      * Genera la exportación de asistencias, aplicando filtros opcionales.
-     * Si no se filtra por una sede específica y hay asistencias de varias sedes,
-     * el resultado es un .zip con una planilla .xlsx por cada sede.
+     * Siempre es un único .xlsx; si el resultado abarca varias sedes (sin filtrar por
+     * una sede puntual), cada sede va en su propia hoja dentro de ese mismo archivo.
      *
      * @param clubId      ID del club (obligatorio, aísla el tenant)
      * @param sedeId      Filtro por sede (opcional)
@@ -76,7 +75,7 @@ public class AsistenciaExportService {
                 .map(ClubConfig::getEsquemaCobro)
                 .orElse(ClubConfig.EsquemaCobro.MENSUALIDAD);
 
-        // Agrupar por sede: cada sede se exporta en su propio libro.
+        // Agrupar por sede: cada sede se exporta en su propia hoja del mismo libro.
         Map<String, List<Attendance>> porSede = new LinkedHashMap<>();
         asistencias.stream()
                 .sorted(Comparator.comparing(Attendance::getFecha))
@@ -84,124 +83,40 @@ public class AsistenciaExportService {
                     String claveSede = a.getSede() != null ? a.getSede().getNombre() : "Sin sede";
                     porSede.computeIfAbsent(claveSede, k -> new ArrayList<>()).add(a);
                 });
-
-        String filtroDescripcion = buildFiltroDescription(sedeId, nivel, fechaDesde, fechaHasta);
-
-        // Si el admin pidió una sede puntual, o solo hay una sede en los resultados, un único .xlsx.
-        if (sedeId != null || porSede.size() <= 1) {
-            String nombreSede = porSede.isEmpty() ? null : porSede.keySet().iterator().next();
-            byte[] bytes = buildWorkbookBytes(nombreSede, porSede.getOrDefault(nombreSede, List.of()), esquema, filtroDescripcion);
-            String filename = "planilla_asistencias" + (nombreSede != null ? "_" + slug(nombreSede) : "") + ".xlsx";
-            return new ExportResult(bytes, filename,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        if (porSede.isEmpty()) {
+            porSede.put("Asistencias", List.of());
         }
 
-        // Varias sedes sin filtro: un .xlsx por sede, empaquetados en un .zip.
-        byte[] zipBytes = buildZipBytes(porSede, esquema, filtroDescripcion);
-        return new ExportResult(zipBytes, "planillas_asistencias_por_sede.zip", "application/zip");
-    }
+        byte[] bytes = buildWorkbookBytes(porSede, esquema);
 
-    // ── Construcción de archivos ──────────────────────────────────────────────────────────
-
-    private byte[] buildZipBytes(Map<String, List<Attendance>> porSede, ClubConfig.EsquemaCobro esquema, String filtroDescripcion) {
-        try (ByteArrayOutputStream zipBaos = new ByteArrayOutputStream();
-             ZipOutputStream zos = new ZipOutputStream(zipBaos)) {
-
-            for (Map.Entry<String, List<Attendance>> entry : porSede.entrySet()) {
-                byte[] libro = buildWorkbookBytes(entry.getKey(), entry.getValue(), esquema, filtroDescripcion);
-                zos.putNextEntry(new ZipEntry("planilla_asistencias_" + slug(entry.getKey()) + ".xlsx"));
-                zos.write(libro);
-                zos.closeEntry();
-            }
-            zos.finish();
-            return zipBaos.toByteArray();
-        } catch (IOException e) {
-            throw new RuntimeException("Error generando el .zip de planillas por sede: " + e.getMessage(), e);
+        String filename;
+        if (porSede.size() == 1) {
+            filename = "planilla_asistencias_" + slug(porSede.keySet().iterator().next()) + ".xlsx";
+        } else {
+            filename = "planilla_asistencias_todas_las_sedes.xlsx";
         }
+
+        return new ExportResult(bytes, filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     }
 
-    private byte[] buildWorkbookBytes(String nombreSede, List<Attendance> asistencias, ClubConfig.EsquemaCobro esquema, String filtroDescripcion) {
+    // ── Construcción del archivo ──────────────────────────────────────────────────────────
+
+    /** Un único workbook con una hoja por sede (los estilos se crean una sola vez y se reutilizan entre hojas). */
+    private byte[] buildWorkbookBytes(Map<String, List<Attendance>> porSede, ClubConfig.EsquemaCobro esquema) {
         try (XSSFWorkbook workbook = new XSSFWorkbook()) {
-            Sheet sheet = workbook.createSheet("Asistencias");
-
             CellStyle titleStyle = buildTitleStyle(workbook);
             CellStyle dayHeaderStyle = buildDayHeaderStyle(workbook);
             CellStyle headerStyle = buildHeaderStyle(workbook);
-            CellStyle normalStyle = buildDataStyle(workbook, false);
-            CellStyle cortesiaStyle = buildDataStyle(workbook, true);
+            CellStyle normalStyle = buildDataStyle(workbook, RowTag.NINGUNO);
+            CellStyle cortesiaStyle = buildDataStyle(workbook, RowTag.CORTESIA);
+            CellStyle extraStyle = buildDataStyle(workbook, RowTag.EXTRA);
 
-            String[] columnas = columnasPara(esquema);
-            int numCols = columnas.length;
-
-            int rowNum = 0;
-
-            // ── Título ──
-            Row titleRow = sheet.createRow(rowNum++);
-            Cell titleCell = titleRow.createCell(0);
-            titleCell.setCellValue("Planilla de Asistencias" + (nombreSede != null ? " — " + nombreSede : ""));
-            titleCell.setCellStyle(titleStyle);
-            sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, numCols - 1));
-
-            // ── Filtros ──
-            Row filtrosRow = sheet.createRow(rowNum++);
-            Cell filtroCell = filtrosRow.createCell(0);
-            filtroCell.setCellValue(filtroDescripcion);
-            sheet.addMergedRegion(new CellRangeAddress(rowNum - 1, rowNum - 1, 0, numCols - 1));
-
-            rowNum++; // fila en blanco
-
-            // ── Agrupar por día (más reciente primero) ──
-            Map<LocalDate, List<Attendance>> porDia = new TreeMap<>(Comparator.reverseOrder());
-            for (Attendance a : asistencias) {
-                if (a.getFecha() == null) continue;
-                porDia.computeIfAbsent(a.getFecha().toLocalDate(), k -> new ArrayList<>()).add(a);
+            Set<String> nombresHojaUsados = new HashSet<>();
+            for (Map.Entry<String, List<Attendance>> entry : porSede.entrySet()) {
+                Sheet sheet = workbook.createSheet(nombreHojaSeguro(entry.getKey(), nombresHojaUsados));
+                escribirHojaSede(sheet, entry.getKey(), entry.getValue(), esquema,
+                        titleStyle, dayHeaderStyle, headerStyle, normalStyle, cortesiaStyle, extraStyle);
             }
-
-            for (Map.Entry<LocalDate, List<Attendance>> diaEntry : porDia.entrySet()) {
-                List<Attendance> delDia = diaEntry.getValue();
-                delDia.sort(Comparator.comparing(Attendance::getFecha));
-
-                // Encabezado del día
-                Row dayRow = sheet.createRow(rowNum++);
-                Cell dayCell = dayRow.createCell(0);
-                String titulo = capitalize(diaEntry.getKey().format(DAY_TITLE_FMT)) + "  (" + delDia.size() + " registro" + (delDia.size() == 1 ? "" : "s") + ")";
-                dayCell.setCellValue(titulo);
-                dayCell.setCellStyle(dayHeaderStyle);
-                sheet.addMergedRegion(new CellRangeAddress(rowNum - 1, rowNum - 1, 0, numCols - 1));
-
-                // Encabezados de columnas
-                Row headerRow = sheet.createRow(rowNum++);
-                for (int i = 0; i < columnas.length; i++) {
-                    Cell cell = headerRow.createCell(i);
-                    cell.setCellValue(columnas[i]);
-                    cell.setCellStyle(headerStyle);
-                }
-
-                // Filas de datos
-                for (Attendance a : delDia) {
-                    Row row = sheet.createRow(rowNum++);
-                    CellStyle rowStyle = Boolean.TRUE.equals(a.getEsCortesia()) ? cortesiaStyle : normalStyle;
-                    escribirFila(row, a, esquema, rowStyle);
-                }
-
-                rowNum++; // fila en blanco entre tablas de días
-            }
-
-            if (porDia.isEmpty()) {
-                Row emptyRow = sheet.createRow(rowNum++);
-                emptyRow.createCell(0).setCellValue("No hay registros de asistencia para los filtros seleccionados.");
-            }
-
-            // ── Anchos de columna ──
-            int[] colWidths = anchosPara(esquema);
-            for (int i = 0; i < colWidths.length; i++) {
-                sheet.setColumnWidth(i, colWidths[i]);
-            }
-
-            // ── Total ──
-            Row totalRow = sheet.createRow(rowNum + 1);
-            totalRow.createCell(0).setCellValue("Total de registros: " + asistencias.size());
-            sheet.addMergedRegion(new CellRangeAddress(rowNum + 1, rowNum + 1, 0, numCols - 1));
 
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             workbook.write(baos);
@@ -211,22 +126,96 @@ public class AsistenciaExportService {
         }
     }
 
+    private void escribirHojaSede(Sheet sheet, String nombreSede, List<Attendance> asistencias, ClubConfig.EsquemaCobro esquema,
+                                   CellStyle titleStyle, CellStyle dayHeaderStyle, CellStyle headerStyle,
+                                   CellStyle normalStyle, CellStyle cortesiaStyle, CellStyle extraStyle) {
+        String[] columnas = columnasPara(esquema);
+        int numCols = columnas.length;
+
+        int rowNum = 0;
+
+        // ── Título ──
+        Row titleRow = sheet.createRow(rowNum++);
+        Cell titleCell = titleRow.createCell(0);
+        titleCell.setCellValue("Planilla de Asistencias — " + nombreSede);
+        titleCell.setCellStyle(titleStyle);
+        sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, numCols - 1));
+
+        rowNum++; // fila en blanco
+
+        // ── Agrupar por día (más reciente primero) ──
+        Map<LocalDate, List<Attendance>> porDia = new TreeMap<>(Comparator.reverseOrder());
+        for (Attendance a : asistencias) {
+            if (a.getFecha() == null) continue;
+            porDia.computeIfAbsent(a.getFecha().toLocalDate(), k -> new ArrayList<>()).add(a);
+        }
+
+        for (Map.Entry<LocalDate, List<Attendance>> diaEntry : porDia.entrySet()) {
+            List<Attendance> delDia = diaEntry.getValue();
+            delDia.sort(Comparator.comparing(Attendance::getFecha));
+
+            // Encabezado del día
+            Row dayRow = sheet.createRow(rowNum++);
+            Cell dayCell = dayRow.createCell(0);
+            String titulo = capitalize(diaEntry.getKey().format(DAY_TITLE_FMT)) + "  (" + delDia.size() + " registro" + (delDia.size() == 1 ? "" : "s") + ")";
+            dayCell.setCellValue(titulo);
+            dayCell.setCellStyle(dayHeaderStyle);
+            sheet.addMergedRegion(new CellRangeAddress(rowNum - 1, rowNum - 1, 0, numCols - 1));
+
+            // Encabezados de columnas
+            Row headerRow = sheet.createRow(rowNum++);
+            for (int i = 0; i < columnas.length; i++) {
+                Cell cell = headerRow.createCell(i);
+                cell.setCellValue(columnas[i]);
+                cell.setCellStyle(headerStyle);
+            }
+
+            // Filas de datos
+            for (Attendance a : delDia) {
+                Row row = sheet.createRow(rowNum++);
+                CellStyle rowStyle = Boolean.TRUE.equals(a.getEsCortesia()) ? cortesiaStyle
+                        : Boolean.TRUE.equals(a.getFueraDePlan()) ? extraStyle
+                        : normalStyle;
+                escribirFila(row, a, esquema, rowStyle);
+            }
+
+            rowNum++; // fila en blanco entre tablas de días
+        }
+
+        if (porDia.isEmpty()) {
+            Row emptyRow = sheet.createRow(rowNum++);
+            emptyRow.createCell(0).setCellValue("No hay registros de asistencia para los filtros seleccionados.");
+        }
+
+        // ── Anchos de columna ──
+        int[] colWidths = anchosPara(esquema);
+        for (int i = 0; i < colWidths.length; i++) {
+            sheet.setColumnWidth(i, colWidths[i]);
+        }
+
+        // ── Total ──
+        Row totalRow = sheet.createRow(rowNum + 1);
+        totalRow.createCell(0).setCellValue("Total de registros: " + asistencias.size());
+        sheet.addMergedRegion(new CellRangeAddress(rowNum + 1, rowNum + 1, 0, numCols - 1));
+    }
+
     // ── Columnas por esquema de cobro ─────────────────────────────────────────────────────
-    // POR_CLASE: le importa el precio y si la clase fue pagada.
-    // MENSUALIDAD y PAQUETE: solo les importa cuándo vino el deportista, sede y nivel/grupo.
+    // "Tipo" (Grupal/Personalizada) solo tiene sentido en POR_CLASE — en Mensualidad y Paquete
+    // todas las clases son grupales, así que la columna sobra ahí. "Evento" (Cortesía/Clase
+    // Extra) y "Registrado por" sí aplican a los tres esquemas.
 
     private String[] columnasPara(ClubConfig.EsquemaCobro esquema) {
         if (esquema == ClubConfig.EsquemaCobro.POR_CLASE) {
-            return new String[]{"Deportista / Prospecto", "Nivel / Grupo", "Tipo", "Precio ($)", "Pagado"};
+            return new String[]{"Deportista / Prospecto", "Nivel / Grupo", "Tipo", "Evento", "Precio ($)", "Pagado", "Registrado por"};
         }
-        return new String[]{"Deportista / Prospecto", "Nivel / Grupo", "Tipo"};
+        return new String[]{"Deportista / Prospecto", "Nivel / Grupo", "Evento", "Registrado por"};
     }
 
     private int[] anchosPara(ClubConfig.EsquemaCobro esquema) {
         if (esquema == ClubConfig.EsquemaCobro.POR_CLASE) {
-            return new int[]{7500, 5500, 4200, 3200, 2800};
+            return new int[]{7500, 5500, 4200, 4200, 3200, 2800, 5500};
         }
-        return new int[]{7500, 5500, 4200};
+        return new int[]{7500, 5500, 4200, 5500};
     }
 
     private void escribirFila(Row row, Attendance a, ClubConfig.EsquemaCobro esquema, CellStyle rowStyle) {
@@ -239,8 +228,14 @@ public class AsistenciaExportService {
 
         setCell(row, col++, a.getNivel() != null ? a.getNivel() : "—", rowStyle);
 
-        String tipo = Boolean.TRUE.equals(a.getEsCortesia()) ? "🎟 Cortesía" : (a.getTipoClase() != null ? a.getTipoClase() : "GRUPAL");
-        setCell(row, col++, tipo, rowStyle);
+        if (esquema == ClubConfig.EsquemaCobro.POR_CLASE) {
+            setCell(row, col++, a.getTipoClase() != null ? a.getTipoClase() : "GRUPAL", rowStyle);
+        }
+
+        String evento = Boolean.TRUE.equals(a.getEsCortesia()) ? "🎟 Cortesía"
+                : Boolean.TRUE.equals(a.getFueraDePlan()) ? "➕ Clase Extra"
+                : "—";
+        setCell(row, col++, evento, rowStyle);
 
         if (esquema == ClubConfig.EsquemaCobro.POR_CLASE) {
             Cell cPrecio = row.createCell(col++);
@@ -249,6 +244,8 @@ public class AsistenciaExportService {
 
             setCell(row, col++, Boolean.TRUE.equals(a.getClasePaga()) ? "Sí" : "No", rowStyle);
         }
+
+        setCell(row, col++, a.getRegistradoPorNombre() != null ? a.getRegistradoPorNombre() : "—", rowStyle);
     }
 
     private void setCell(Row row, int col, String value, CellStyle style) {
@@ -299,10 +296,19 @@ public class AsistenciaExportService {
         return s;
     }
 
-    private CellStyle buildDataStyle(Workbook wb, boolean esCortesia) {
+    /** Resaltado de fila: cortesía (amarillo) y clase extra/fuera de plan (naranja) se marcan igual de visibles que en el historial. */
+    private enum RowTag { NINGUNO, CORTESIA, EXTRA }
+
+    private CellStyle buildDataStyle(Workbook wb, RowTag tag) {
         CellStyle s = wb.createCellStyle();
-        if (esCortesia) {
+        if (tag == RowTag.CORTESIA) {
             s.setFillForegroundColor(IndexedColors.LIGHT_YELLOW.getIndex());
+            s.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            Font font = wb.createFont();
+            font.setItalic(true);
+            s.setFont(font);
+        } else if (tag == RowTag.EXTRA) {
+            s.setFillForegroundColor(IndexedColors.LIGHT_ORANGE.getIndex());
             s.setFillPattern(FillPatternType.SOLID_FOREGROUND);
             Font font = wb.createFont();
             font.setItalic(true);
@@ -315,18 +321,25 @@ public class AsistenciaExportService {
         return s;
     }
 
-    private String buildFiltroDescription(Long sedeId, String nivel, String fechaDesde, String fechaHasta) {
-        StringBuilder sb = new StringBuilder("Filtros: ");
-        sb.append(sedeId != null ? "Sede ID=" + sedeId : "Todas las sedes");
-        sb.append(" | ").append(nivel != null && !nivel.isBlank() ? "Nivel: " + nivel : "Todos los niveles");
-        sb.append(" | ").append(fechaDesde != null && !fechaDesde.isBlank() ? "Desde: " + fechaDesde : "Sin fecha inicio");
-        sb.append(" | ").append(fechaHasta != null && !fechaHasta.isBlank() ? "Hasta: " + fechaHasta : "Sin fecha fin");
-        return sb.toString();
-    }
-
     private String capitalize(String s) {
         if (s == null || s.isBlank()) return s;
         return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+    }
+
+    /** Nombre de hoja válido para Excel: máx. 31 caracteres, sin [ ] : * ? / \ , y sin repetirse dentro del libro. */
+    private String nombreHojaSeguro(String nombreSede, Set<String> usados) {
+        String limpio = nombreSede == null ? "Asistencias" : nombreSede.replaceAll("[\\[\\]:*?/\\\\]", " ").trim();
+        if (limpio.isEmpty()) limpio = "Asistencias";
+        if (limpio.length() > 31) limpio = limpio.substring(0, 31);
+
+        String candidato = limpio;
+        int sufijo = 2;
+        while (!usados.add(candidato)) {
+            String base = limpio.length() > 27 ? limpio.substring(0, 27) : limpio;
+            candidato = base + " (" + sufijo + ")";
+            sufijo++;
+        }
+        return candidato;
     }
 
     private String slug(String s) {

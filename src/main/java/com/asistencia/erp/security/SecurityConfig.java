@@ -53,6 +53,12 @@ public class SecurityConfig {
                 .requestMatchers("/api/finanzas/**").hasAnyRole("ADMIN", "EMPLEADO", "SUPERADMIN")
                 .requestMatchers("/api/sedes/**").hasAnyRole("ADMIN", "EMPLEADO", "SUPERADMIN")
                 .requestMatchers("/api/empleados/**").hasAnyRole("ADMIN", "SUPERADMIN")
+                // Lectura de /api/config/cobro también para EMPLEADO: un entrenador necesita leer el
+                // esquema/reglas de SU club (registrar asistencia, historial, etc. dependen de esto).
+                // Esta regla de URL corre ANTES que cualquier @PreAuthorize a nivel de método del
+                // controlador, así que sin esto el entrenador seguía recibiendo 403 sin importar lo
+                // que dijera ClubConfigController — la escritura (PUT) sigue exclusiva de ADMIN/SUPERADMIN.
+                .requestMatchers(HttpMethod.GET, "/api/config/cobro").hasAnyRole("ADMIN", "EMPLEADO", "SUPERADMIN")
                 .requestMatchers("/api/config/**").hasAnyRole("ADMIN", "SUPERADMIN")
                 .requestMatchers("/api/clientes/**").hasAnyRole("ADMIN", "EMPLEADO", "SUPERADMIN")
                 .requestMatchers("/api/asistencias/**").hasAnyRole("ADMIN", "EMPLEADO", "SUPERADMIN")

@@ -46,14 +46,19 @@ public class ClubConfigController {
     private final SedeRepository sedeRepository;
 
     /**
-     * Obtiene la configuración de cobro del ADMIN autenticado.
+     * Obtiene la configuración de cobro del club del usuario autenticado (lectura, no escritura).
+     * Se permite también a EMPLEADO: un entrenador necesita conocer el esquema de cobro, los
+     * montos de matrícula/seguro y demás reglas de SU club para que la UI (registrar asistencia,
+     * ficha de clientes, etc.) se comporte igual que para el ADMIN — antes esto estaba restringido
+     * a ADMIN/SUPERADMIN y el entrenador nunca heredaba la configuración real del club.
      * Si no existe aún, retorna una configuración con valores por defecto.
      */
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPERADMIN', 'EMPLEADO')")
     @GetMapping
     public ResponseEntity<ClubConfig> obtenerConfig() {
-        Long adminId = obtenerAdminId();
-        ClubConfig config = clubConfigRepository.findByAdminId(adminId)
-                .orElseGet(() -> crearConfigPorDefecto(adminId));
+        Long clubId = SecurityUtils.getClubId();
+        ClubConfig config = clubConfigRepository.findByAdminId(clubId)
+                .orElseGet(() -> crearConfigPorDefecto(clubId));
         return ResponseEntity.ok(config);
     }
 

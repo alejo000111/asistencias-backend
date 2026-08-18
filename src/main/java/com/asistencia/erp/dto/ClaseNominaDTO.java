@@ -26,4 +26,8 @@ public class ClaseNominaDTO {
     private String tipoClase;
     private BigDecimal tarifa;
     private Boolean pagadoNomina;
+    /** Fecha en la que se pagó esta sesión (null si sigue pendiente). */
+    private LocalDate fechaPago;
+    /** Medio de pago usado (EFECTIVO/TRANSFERENCIA), null si sigue pendiente. */
+    private String metodoPago;
 }

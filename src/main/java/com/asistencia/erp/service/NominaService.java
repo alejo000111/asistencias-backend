@@ -44,6 +44,12 @@ public class NominaService {
         boolean pagada() {
             return asistencias.stream().allMatch(a -> Boolean.TRUE.equals(a.getPagadoNomina()));
         }
+        LocalDate fechaPago() {
+            return pagada() ? asistencias.get(0).getFechaPagoNomina() : null;
+        }
+        String metodoPago() {
+            return pagada() ? asistencias.get(0).getMetodoPagoNomina() : null;
+        }
     }
 
     @Transactional(readOnly = true)
@@ -138,16 +144,22 @@ public class NominaService {
                             niveles,
                             tipoClase,
                             tarifaPorEmpleado.get(s.empleadoId()),
-                            s.pagada()
+                            s.pagada(),
+                            s.fechaPago(),
+                            s.metodoPago()
                     );
                 })
                 .sorted(Comparator.comparing(ClaseNominaDTO::getFecha).reversed())
                 .toList();
     }
 
-    /** FASE 4.3 — Marca (o desmarca) como pagada toda una sesión (todas las asistencias que la componen). */
+    /**
+     * FASE 4.3 — Marca (o desmarca) como pagada toda una sesión (todas las asistencias que la componen).
+     * Los IDs pueden venir de varias sesiones distintas a la vez (p.ej. varios entrenadores pagados
+     * el mismo día con el mismo medio), ya que la operación es por asistencia individual.
+     */
     @Transactional
-    public int marcarPagoSesion(Long clubId, List<Long> attendanceIds, boolean pagado) {
+    public int marcarPagoSesion(Long clubId, List<Long> attendanceIds, boolean pagado, LocalDate fechaPago, String metodoPago) {
         int actualizadas = 0;
         for (Long id : attendanceIds) {
             Attendance a = attendanceRepository.findById(id).orElse(null);
@@ -155,6 +167,8 @@ public class NominaService {
                 continue;
             }
             a.setPagadoNomina(pagado);
+            a.setFechaPagoNomina(pagado ? fechaPago : null);
+            a.setMetodoPagoNomina(pagado ? metodoPago : null);
             attendanceRepository.save(a);
             actualizadas++;
         }

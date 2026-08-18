@@ -22,6 +22,8 @@ import com.asistencia.erp.service.AsistenciaExportService;
 import com.asistencia.erp.service.CortesiaService;
 import com.asistencia.erp.service.FinancialService;
 import jakarta.validation.Valid;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -119,6 +121,9 @@ public class FinancialController {
                         .body("La sede actual está inactiva o no pertenece al club");
             }
         }
+
+        ResponseEntity<?> errorFecha = validarFechaNoFutura(fecha);
+        if (errorFecha != null) return errorFecha;
 
         com.asistencia.erp.entity.Attendance asistencia = financialService.registrarAsistencia(
                 studentId,
@@ -534,6 +539,8 @@ public class FinancialController {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).body("La sede no pertenece a este club");
             }
         }
+        ResponseEntity<?> errorFecha = validarFechaNoFutura(req.getFecha());
+        if (errorFecha != null) return errorFecha;
         try {
             Attendance cortesia = cortesiaService.registrarCortesia(req);
             return ResponseEntity.ok(AttendanceDTO.fromEntity(cortesia));
@@ -595,5 +602,19 @@ public class FinancialController {
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
+    }
+
+    /** No se permiten "asistencias futuras": la fecha (si viene) debe ser hoy o anterior. Null/vacío = hoy, siempre válido. */
+    private ResponseEntity<?> validarFechaNoFutura(String fecha) {
+        if (fecha == null || fecha.isBlank()) return null;
+        try {
+            LocalDate parsed = LocalDate.parse(fecha.length() >= 10 ? fecha.substring(0, 10) : fecha);
+            if (parsed.isAfter(LocalDate.now())) {
+                return ResponseEntity.badRequest().body("No se puede registrar una asistencia con fecha futura. Usa la fecha de hoy o una anterior.");
+            }
+        } catch (DateTimeParseException e) {
+            return ResponseEntity.badRequest().body("Formato de fecha inválido.");
+        }
+        return null;
     }
 }

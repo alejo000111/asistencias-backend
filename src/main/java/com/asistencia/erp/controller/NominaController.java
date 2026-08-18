@@ -13,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -66,7 +67,17 @@ public class NominaController {
         Object pagadoObj = body.get("pagado");
         boolean pagado = pagadoObj == null || Boolean.parseBoolean(pagadoObj.toString());
 
-        int actualizadas = nominaService.marcarPagoSesion(SecurityUtils.getClubId(), attendanceIds, pagado);
+        LocalDate fechaPago = null;
+        Object fechaPagoObj = body.get("fechaPago");
+        if (pagado && fechaPagoObj != null && !fechaPagoObj.toString().isBlank()) {
+            fechaPago = LocalDate.parse(fechaPagoObj.toString());
+        } else if (pagado) {
+            fechaPago = LocalDate.now();
+        }
+        Object metodoPagoObj = body.get("metodoPago");
+        String metodoPago = pagado ? (metodoPagoObj != null && !metodoPagoObj.toString().isBlank() ? metodoPagoObj.toString() : "EFECTIVO") : null;
+
+        int actualizadas = nominaService.marcarPagoSesion(SecurityUtils.getClubId(), attendanceIds, pagado, fechaPago, metodoPago);
         if (actualizadas == 0) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "No se encontraron las clases indicadas"));
         }

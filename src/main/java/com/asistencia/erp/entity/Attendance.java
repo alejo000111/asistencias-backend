@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.*;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
@@ -90,6 +91,14 @@ public class Attendance {
     /** true si el club ya le pagó al entrenador/empleado por dictar esta clase (nómina). */
     @Column(name = "pagado_nomina")
     private Boolean pagadoNomina = false;
+
+    /** Fecha en la que se le pagó al entrenador/empleado esta clase (nómina). Null mientras esté pendiente. */
+    @Column(name = "fecha_pago_nomina")
+    private LocalDate fechaPagoNomina;
+
+    /** Medio de pago usado para pagarle al entrenador/empleado esta clase (EFECTIVO/TRANSFERENCIA). Null mientras esté pendiente. */
+    @Column(name = "metodo_pago_nomina")
+    private String metodoPagoNomina;
 
     /**
      * Aviso de solo-respuesta (nunca persistido) para cuando esta clase se cobró en $0 porque
