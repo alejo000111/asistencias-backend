@@ -391,10 +391,13 @@ public class FinancialService {
      *   contra el plan VIGENTE de la matrícula al momento de cobrar/pagar.
      * - No aplica a matrículas secundarias (solo la principal factura la mensualidad).
      *
+     * @param sedeAnterior sede de la matrícula principal ANTES del cambio (para detectar,
+     *                      cuando no hay plan asignado en ninguno de los dos lados, si el
+     *                      cambio de sede por sí solo implica un precio legado distinto).
      * @return true si se generó un cargo o abono de ajuste.
      */
     @Transactional
-    public boolean reconciliarCambioDePlanMensualidad(Enrollment enrollment, PlanMensualidad planAnterior) {
+    public boolean reconciliarCambioDePlanMensualidad(Enrollment enrollment, PlanMensualidad planAnterior, com.asistencia.erp.entity.Sede sedeAnterior) {
         if (enrollment == null || !Boolean.TRUE.equals(enrollment.getEsPrincipal())) {
             return false;
         }
@@ -403,8 +406,15 @@ public class FinancialService {
             return false;
         }
         PlanMensualidad planNuevo = enrollment.getPlanMensualidad();
-        if (java.util.Objects.equals(planAnterior != null ? planAnterior.getId() : null, planNuevo != null ? planNuevo.getId() : null)) {
-            return false; // el plan no cambió realmente
+        boolean mismoPlan = java.util.Objects.equals(planAnterior != null ? planAnterior.getId() : null, planNuevo != null ? planNuevo.getId() : null);
+        Long sedeAnteriorId = sedeAnterior != null ? sedeAnterior.getId() : null;
+        Long sedeNuevaId = enrollment.getSede() != null ? enrollment.getSede().getId() : null;
+        boolean mismaSede = java.util.Objects.equals(sedeAnteriorId, sedeNuevaId);
+        // planAnterior==null y planNuevo==null ("mismo plan" por Objects.equals) no significa "mismo precio":
+        // ese club cobra con el esquema legado ClubConfig/TarifaSede por sede, así que si ADEMÁS cambió la
+        // sede sí puede haber diferencia real — se deja continuar para que la comparación de precios de abajo decida.
+        if (mismoPlan && (planAnterior != null || mismaSede)) {
+            return false; // ni el plan ni la sede cambiaron realmente
         }
 
         ClubConfig config = clubConfigResolver.resolveForStudent(student);

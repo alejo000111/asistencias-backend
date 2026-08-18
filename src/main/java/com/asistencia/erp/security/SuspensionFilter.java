@@ -25,11 +25,20 @@ import java.time.LocalDate;
  *   ✅ PERMITE → GET  /**                        (consultas de solo lectura)
  *   ✅ PERMITE → /api/auth/**                    (login/logout)
  *   ✅ PERMITE → /api/public/**                  (portal padres)
+ *   ✅ PERMITE → /api/superadmin/**              (el SUPERADMIN siempre puede gestionar/reactivar el club)
  *   ❌ BLOQUEA → POST/PUT/DELETE /api/finanzas/abono
  *   ❌ BLOQUEA → POST/PUT/DELETE /api/clientes/**
  *   ❌ BLOQUEA → POST/PUT/DELETE /api/registro/**
  *   ❌ BLOQUEA → POST/PUT/DELETE /api/sedes/**
  *   ❌ BLOQUEA → POST/PUT/DELETE /api/empleados/**
+ *   ❌ BLOQUEA → POST/PUT/DELETE /api/planes/**       (Planes de Mensualidad)
+ *   ❌ BLOQUEA → POST/PUT/DELETE /api/complementos/** (Complementos)
+ *   ❌ BLOQUEA → POST/PUT/DELETE /api/escenarios/**   (Escenarios)
+ *   ❌ BLOQUEA → POST/PUT/DELETE /api/config/**       (tarifas, esquema de cobro, llaves de Wompi)
+ *
+ * Nota: un club en mora sí puede seguir cobrando cuotas nuevas a sus propios padres (vía
+ * asistencia), pero deliberadamente no puede tocar SU configuración de precios/pagos mientras
+ * esté suspendido — evita que reconfigure tarifas o llaves de Wompi antes de regularizar.
  */
 @Component
 @RequiredArgsConstructor
@@ -125,7 +134,6 @@ public class SuspensionFilter extends OncePerRequestFilter {
         // Rutas que siempre pasan sin importar el estado de mora
         if (path.startsWith("/api/auth/") ||
             path.startsWith("/api/public/") ||
-            path.startsWith("/api/config/") ||
             path.startsWith("/api/superadmin/")) {
             return false;
         }
@@ -133,11 +141,19 @@ public class SuspensionFilter extends OncePerRequestFilter {
         // Mutaciones financieras/administrativas restringidas estrictamente en mora
         // (ver cabecera de la clase para el listado completo de rutas bloqueadas).
         // El registro de asistencias/cortesías se excluye explícitamente más abajo vía esRegistroDeAsistencia().
+        // /api/config/** se incluyó aquí (antes exento por completo): un club suspendido no debe
+        // poder reescribir tarifas, esquema de cobro ni llaves de Wompi mientras esté en mora.
+        // /api/planes, /api/complementos y /api/escenarios también afectan directamente lo que se
+        // le cobra a los padres y habían quedado fuera del bloqueo original por omisión.
         return path.startsWith("/api/finanzas/") ||
                path.startsWith("/api/clientes/") ||
                path.startsWith("/api/registro/") ||
                path.startsWith("/api/sedes/") ||
-               path.startsWith("/api/empleados/");
+               path.startsWith("/api/empleados/") ||
+               path.startsWith("/api/planes/") ||
+               path.startsWith("/api/complementos/") ||
+               path.startsWith("/api/escenarios/") ||
+               path.startsWith("/api/config/");
     }
 
     /**

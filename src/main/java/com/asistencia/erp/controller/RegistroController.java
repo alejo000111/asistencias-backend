@@ -210,13 +210,14 @@ public class RegistroController {
             }
             deportista.setEstado(Student.StudentStatus.valueOf(req.getEstado()));
 
-            // Capturar el plan de la matrícula PRINCIPAL antes de reemplazarla, para poder
-            // reconciliar la diferencia de dinero si el admin cambia de plan a mitad de mes
+            // Capturar el plan y la sede de la matrícula PRINCIPAL antes de reemplazarla, para poder
+            // reconciliar la diferencia de dinero si el admin cambia de plan y/o de sede a mitad de mes
             // (ver FinancialService.reconciliarCambioDePlanMensualidad).
-            PlanMensualidad planPrincipalAnterior = (deportista.getMatriculas() == null ? List.<Enrollment>of() : deportista.getMatriculas()).stream()
+            Enrollment matriculaPrincipalAnterior = (deportista.getMatriculas() == null ? List.<Enrollment>of() : deportista.getMatriculas()).stream()
                     .filter(m -> Boolean.TRUE.equals(m.getEsPrincipal()))
-                    .map(Enrollment::getPlanMensualidad)
                     .findFirst().orElse(null);
+            PlanMensualidad planPrincipalAnterior = matriculaPrincipalAnterior != null ? matriculaPrincipalAnterior.getPlanMensualidad() : null;
+            Sede sedePrincipalAnterior = matriculaPrincipalAnterior != null ? matriculaPrincipalAnterior.getSede() : null;
 
             // Reemplazar matriculas
             deportista.getMatriculas().clear();
@@ -232,7 +233,7 @@ public class RegistroController {
                     .filter(m -> Boolean.TRUE.equals(m.getEsPrincipal()))
                     .findFirst().orElse(null);
             boolean reconciliacionAplicada = nuevoPrincipal != null
-                    && financialService.reconciliarCambioDePlanMensualidad(nuevoPrincipal, planPrincipalAnterior);
+                    && financialService.reconciliarCambioDePlanMensualidad(nuevoPrincipal, planPrincipalAnterior, sedePrincipalAnterior);
 
             return ResponseEntity.ok(java.util.Map.of(
                     "mensaje", "Deportista actualizado",

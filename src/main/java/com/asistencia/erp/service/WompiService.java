@@ -3,14 +3,18 @@ package com.asistencia.erp.service;
 import com.asistencia.erp.dto.WompiTransactionInitRequest;
 import com.asistencia.erp.dto.WompiTransactionInitResponse;
 import com.asistencia.erp.dto.WompiWebhookPayload;
+import com.asistencia.erp.entity.Attendance;
 import com.asistencia.erp.entity.ClubConfig;
 import com.asistencia.erp.entity.FinancialLog;
 import com.asistencia.erp.entity.Parent;
 import com.asistencia.erp.entity.PaymentTransaction;
+import com.asistencia.erp.repository.AttendanceRepository;
 import com.asistencia.erp.repository.ClubConfigRepository;
 import com.asistencia.erp.repository.FinancialLogRepository;
 import com.asistencia.erp.repository.ParentRepository;
 import com.asistencia.erp.repository.PaymentTransactionRepository;
+import com.asistencia.erp.service.billing.ClubConfigResolver;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,10 +22,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.time.LocalDateTime;
+import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 @Service
+@Slf4j
 public class WompiService {
 
     @Autowired
@@ -35,6 +41,15 @@ public class WompiService {
 
     @Autowired
     private FinancialLogRepository financialLogRepository;
+
+    @Autowired
+    private AttendanceRepository attendanceRepository;
+
+    @Autowired
+    private ClubConfigResolver clubConfigResolver;
+
+    @Autowired
+    private FinancialService financialService;
 
     public WompiTransactionInitResponse initializeTransaction(WompiTransactionInitRequest request) {
         Parent parent = parentRepository.findBySecretToken(request.getSecretToken())
@@ -60,7 +75,16 @@ public class WompiService {
             throw new RuntimeException("El club no tiene configurada su cuenta de Wompi.");
         }
 
-        long amountInCents = request.getAmount().multiply(new BigDecimal(100)).longValue();
+        // SEC-CRÍTICO: el monto a cobrar NUNCA se toma de lo que envía el cliente
+        // (request.getAmount() se ignora por completo) — se calcula siempre en el servidor a
+        // partir de la deuda real del padre, con la misma fórmula que expone el Portal de
+        // Padres. Antes un llamado directo a este endpoint público (sin sesión) podía iniciar
+        // una transacción por cualquier monto, incluido 0.01 o negativo.
+        BigDecimal deuda = calcularDeudaTotal(parent);
+        if (deuda.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new RuntimeException("No tienes deuda pendiente por pagar.");
+        }
+        long amountInCents = deuda.multiply(new BigDecimal(100)).longValue();
         String reference = UUID.randomUUID().toString();
 
         PaymentTransaction transaction = PaymentTransaction.builder()
@@ -99,9 +123,11 @@ public class WompiService {
         PaymentTransaction transaction = paymentTransactionRepository.findByReference(reference)
                 .orElseThrow(() -> new RuntimeException("Transaction not found"));
 
-        // Only process pending transactions
+        // Atajo de solo-lectura: evita repetir la verificación de firma para una referencia que
+        // ya se sabe procesada. La protección real contra procesamiento duplicado (dos entregas
+        // casi simultáneas del mismo webhook) es la transición atómica más abajo, no esta lectura.
         if (transaction.getStatus() != PaymentTransaction.TransactionStatus.PENDING) {
-            return; // Already processed
+            return;
         }
 
         // clubId en PaymentTransaction es el admin_id real (mismo espacio de ids que el resto
@@ -140,35 +166,82 @@ public class WompiService {
         }
 
         String status = payload.getData().getTransaction().getStatus();
-        transaction.setWompiTransactionId(payload.getData().getTransaction().getId());
+        String wompiTransactionId = payload.getData().getTransaction().getId();
 
-        if ("APPROVED".equals(status)) {
-            transaction.setStatus(PaymentTransaction.TransactionStatus.APPROVED);
-
-            // Register Financial Log
-            FinancialLog log = new FinancialLog();
-            log.setParent(transaction.getParent());
-            log.setClubId(transaction.getClubId());
-            log.setFecha(LocalDateTime.now());
-            log.setMonto(new BigDecimal(transaction.getAmountInCents()).divide(new BigDecimal(100)));
-            log.setTipoMovimiento(FinancialLog.MovementType.PAGO_DIRECTO);
-            log.setConcepto("Pago Deuda vía Wompi");
-            log.setMetodoPago(FinancialLog.PaymentMethod.WOMPI);
-            log.setDetalles("Wompi TX: " + transaction.getWompiTransactionId());
-            financialLogRepository.save(log);
-
-            // TODO: Aqui también se debería actualizar ParentSnapshot u otra entidad que represente la deuda actual para poner al cliente 'al día'.
-            // Como el modelo de deuda exacto requiere más investigación, por ahora registramos el pago.
-
-        } else if ("DECLINED".equals(status)) {
-            transaction.setStatus(PaymentTransaction.TransactionStatus.DECLINED);
-        } else if ("ERROR".equals(status)) {
-            transaction.setStatus(PaymentTransaction.TransactionStatus.ERROR);
-        } else if ("VOIDED".equals(status)) {
-            transaction.setStatus(PaymentTransaction.TransactionStatus.VOIDED);
+        PaymentTransaction.TransactionStatus nuevoEstado = switch (status) {
+            case "APPROVED" -> PaymentTransaction.TransactionStatus.APPROVED;
+            case "DECLINED" -> PaymentTransaction.TransactionStatus.DECLINED;
+            case "ERROR" -> PaymentTransaction.TransactionStatus.ERROR;
+            case "VOIDED" -> PaymentTransaction.TransactionStatus.VOIDED;
+            default -> null;
+        };
+        if (nuevoEstado == null) {
+            log.warn("Webhook de Wompi con estado no accionable '{}' para reference={}", status, reference);
+            return;
         }
 
-        paymentTransactionRepository.save(transaction);
+        // SEC-CRÍTICO: transición atómica PENDING -> nuevoEstado en base de datos (UPDATE
+        // condicional, no "leer -> decidir en memoria -> guardar"). Si esto devuelve 0 filas,
+        // otra entrega concurrente de este mismo webhook (Wompi reintenta si no responde 2xx a
+        // tiempo) ya ganó la carrera y transicionó la transacción primero — no se debe acreditar
+        // el pago dos veces.
+        int filasActualizadas = paymentTransactionRepository.marcarProcesadaSiPendiente(
+                reference, nuevoEstado, wompiTransactionId);
+        if (filasActualizadas == 0) {
+            log.warn("Webhook de Wompi ignorado por transición concurrente ya ganada — reference={}", reference);
+            return;
+        }
+
+        if (nuevoEstado == PaymentTransaction.TransactionStatus.APPROVED) {
+            BigDecimal monto = new BigDecimal(transaction.getAmountInCents()).divide(new BigDecimal(100));
+            // Completa el TODO histórico de este servicio: un pago aprobado por Wompi ahora se
+            // acredita por el MISMO camino que un abono manual registrado por el ADMIN (suma
+            // saldoAbono del padre y reconcilia FIFO sus clases/cargos impagos) — antes solo se
+            // escribía una fila en la bitácora financiera sin tocar la deuda real, así que el
+            // Portal de Padres seguía mostrando exactamente la misma deuda después de pagar.
+            financialService.registrarAbono(
+                    transaction.getParent().getId(), monto, FinancialLog.PaymentMethod.WOMPI, LocalDate.now());
+        }
+    }
+
+    /**
+     * Deuda total real y vigente del padre (clases MENSUALIDAD impagas repriciadas a la tarifa
+     * de hoy + cargos extra pendientes), calculada en el servidor con la misma fórmula que usa
+     * el Portal de Padres para mostrar "Total a Pagar" — nunca a partir de un monto enviado por
+     * el cliente. Réplica intencional (no una extracción compartida) para no tocar
+     * PublicPortalController/FinancialService en este cambio; ver PublicPortalController.obtenerPortal
+     * si esta fórmula necesita evolucionar en el futuro, para mantenerlas alineadas.
+     */
+    private BigDecimal calcularDeudaTotal(Parent parent) {
+        ClubConfig config = clubConfigResolver.resolveForParent(parent);
+
+        List<Attendance> deudasClases = (config != null && config.getEsquemaCobro() == ClubConfig.EsquemaCobro.PAQUETE)
+                ? List.of()
+                : attendanceRepository.findUnpaidAttendancesByParentIdFIFO(parent.getId()).stream()
+                    .filter(a -> a.getPrecioCobrado() != null && a.getPrecioCobrado().compareTo(BigDecimal.ZERO) > 0)
+                    .toList();
+
+        BigDecimal deudaClasesTotal = BigDecimal.ZERO;
+        for (Attendance att : deudasClases) {
+            BigDecimal monto = att.getPrecioCobrado();
+            if (config != null && config.getEsquemaCobro() == ClubConfig.EsquemaCobro.MENSUALIDAD
+                    && monto.compareTo(BigDecimal.ZERO) > 0) {
+                monto = financialService.calcularPrecioMensualidadDeudaVigente(att.getStudent(), config, att);
+            }
+            deudaClasesTotal = deudaClasesTotal.add(monto);
+        }
+
+        List<FinancialLog> cargosExtras = financialLogRepository
+                .findByParentIdAndTipoMovimiento(parent.getId(), FinancialLog.MovementType.CARGO_EXTRA)
+                .stream()
+                .filter(cargo -> cargo.getConcepto() == null || !cargo.getConcepto().toLowerCase().startsWith("paquete"))
+                .toList();
+
+        BigDecimal deudaExtrasTotal = cargosExtras.stream()
+                .map(FinancialLog::getMonto)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        return deudaClasesTotal.add(deudaExtrasTotal);
     }
 
     /** Resuelve el valor de una propiedad declarada en signature.properties (ej. "transaction.id"). */

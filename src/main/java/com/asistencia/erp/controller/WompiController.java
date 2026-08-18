@@ -21,11 +21,12 @@ public class WompiController {
     private WompiService wompiService;
 
     /**
-     * Endpoint público (llamado desde el Portal de Padres, sin sesión). El frontend del portal
-     * NUNCA debe mostrarle al padre el mensaje técnico de este error — solo un aviso genérico
-     * de "contacta al administrador de tu club" (ver WompiPaymentWidget.vue). El mensaje real
-     * sí viaja en el body para cualquier consumidor autenticado/de soporte, y siempre queda en
-     * el log del servidor para que el ADMIN o soporte puedan diagnosticarlo.
+     * Endpoint público (llamado desde el Portal de Padres, sin sesión, sin diferenciación de
+     * caller). Por eso el body de error nunca debe llevar el mensaje técnico interno (nombres de
+     * excepción, detalles de por qué falló una consulta) — cualquiera en internet puede golpear
+     * este endpoint directamente. El detalle completo sí queda en el log del servidor para que
+     * el ADMIN o soporte puedan diagnosticarlo; solo dos mensajes de negocio, ya pensados para
+     * mostrarse tal cual al padre, se dejan pasar sin filtrar.
      */
     @PostMapping("/transaction/init")
     public ResponseEntity<?> initializeTransaction(@RequestBody WompiTransactionInitRequest request) {
@@ -34,8 +35,11 @@ public class WompiController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("Error iniciando transacción Wompi (secretToken={}): {}", request.getSecretToken(), e.getMessage(), e);
+            String mensajeSeguro = "No tienes deuda pendiente por pagar.".equals(e.getMessage())
+                    ? e.getMessage()
+                    : "No se pudo iniciar el pago. Por favor contacta al administrador de tu club.";
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(Map.of("error", e.getMessage() != null ? e.getMessage() : "No se pudo iniciar el pago."));
+                    .body(Map.of("error", mensajeSeguro));
         }
     }
 

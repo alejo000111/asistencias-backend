@@ -156,11 +156,15 @@ public class ClubConfig {
     // SEC: nunca debe serializarse hacia el frontend (GET /api/config/cobro devuelve esta
     // entidad completa) — solo se lee/escribe internamente y vía el endpoint dedicado
     // /api/config/cobro/wompi, que expone únicamente un booleano "configurada", no el valor.
-    @Column(name = "wompi_private_key")
+    // SEC: cifrado en reposo con AES-256-GCM (ver EncryptedStringConverter) — length ampliado
+    // porque el ciphertext base64 (IV + tag + datos) es más largo que la clave Wompi original.
+    @Column(name = "wompi_private_key", length = 500)
+    @Convert(converter = com.asistencia.erp.config.EncryptedStringConverter.class)
     @com.fasterxml.jackson.annotation.JsonIgnore
     private String wompiPrivateKey;
 
-    @Column(name = "wompi_event_secret")
+    @Column(name = "wompi_event_secret", length = 500)
+    @Convert(converter = com.asistencia.erp.config.EncryptedStringConverter.class)
     @com.fasterxml.jackson.annotation.JsonIgnore
     private String wompiEventSecret;
 
