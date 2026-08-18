@@ -188,7 +188,9 @@ public class ClubConfigController {
                 if (item.get("sedeId") == null) continue;
                 Long sedeId = Long.parseLong(item.get("sedeId").toString());
                 Sede sede = sedeRepository.findById(sedeId).orElse(null);
-                if (sede == null) continue;
+                // Cierra el mismo hueco cross-tenant que PlanMensualidadController.validarSedeDelClub:
+                // sin este check, un club podría fijar tarifas para una sede de OTRO club con solo adivinar el id.
+                if (sede == null || !sede.getClubId().equals(SecurityUtils.getClubId())) continue;
 
                 TarifaSede t = existentes.getOrDefault(sedeId, new TarifaSede());
                 t.setClubConfig(config);
