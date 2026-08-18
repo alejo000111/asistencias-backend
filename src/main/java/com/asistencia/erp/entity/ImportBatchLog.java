@@ -43,6 +43,14 @@ public class ImportBatchLog {
     @CollectionTable(name = "import_batch_parent_snapshots", joinColumns = @JoinColumn(name = "batch_id"))
     private List<ParentSnapshot> parentSnapshots = new ArrayList<>();
 
+    @Column(name = "club_id")
+    private Long clubId;
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "import_batch_financial_logs", joinColumns = @JoinColumn(name = "batch_id"))
+    @Column(name = "financial_log_id")
+    private List<Long> createdFinancialLogIds = new ArrayList<>();
+
     @Column(name = "reverted")
     private Boolean reverted = false;
 }

@@ -25,7 +25,7 @@ public class JwtUtil {
         this.expirationMs = expirationMs;
     }
 
-    public String generateToken(Long userId, String username, String role, List<Long> sedeIds) {
+    public String generateToken(Long userId, String username, String role, List<Long> sedeIds, Long clubId) {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + expirationMs);
 
@@ -34,10 +34,15 @@ public class JwtUtil {
                 .claim("userId", userId)
                 .claim("role", role)
                 .claim("sedesAutorizadas", sedeIds)
+                .claim("clubId", clubId)
                 .issuedAt(now)
                 .expiration(expiry)
                 .signWith(key)
                 .compact();
+    }
+
+    public Long getClubIdFromToken(String token) {
+        return getPayload(token).get("clubId", Long.class);
     }
 
     public String getUsernameFromToken(String token) {

@@ -36,6 +36,9 @@ public class Parent {
     @OneToMany(mappedBy = "parent", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Student> students;
 
+    @Column(name = "club_id")
+    private Long clubId;
+
     @PrePersist
     public void prePersist() {
         if (secretToken == null || secretToken.isBlank()) {

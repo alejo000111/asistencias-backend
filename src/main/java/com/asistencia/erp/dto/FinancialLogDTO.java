@@ -27,8 +27,8 @@ public record FinancialLogDTO(
                 : (log.getParent() != null ? log.getParent().getNombreCompleto() : "Cliente eliminado"),
             log.getFecha(),
             log.getMonto(),
-            log.getTipoMovimiento().name(),
-            log.getMetodoPago().name()
+            log.getTipoMovimiento() != null ? log.getTipoMovimiento().name() : "DESCONOCIDO",
+            log.getMetodoPago() != null ? log.getMetodoPago().name() : "NO_APLICA"
         );
     }
 }

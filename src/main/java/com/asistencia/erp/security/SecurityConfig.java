@@ -40,21 +40,24 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
+                // CORS Preflight
+                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 // Público
                 .requestMatchers("/api/auth/login").permitAll()
                 .requestMatchers("/api/public/**").permitAll()
+                .requestMatchers("/api/wompi/**").permitAll()
+                .requestMatchers("/error").permitAll()
                 // Exclusivo SUPERADMIN
                 .requestMatchers("/api/superadmin/**").hasRole("SUPERADMIN")
-                // Solo ADMIN — respaldo a nivel HTTP (además de @PreAuthorize a nivel de método)
-                .requestMatchers("/api/finanzas/**").hasAnyRole("ADMIN", "EMPLEADO")
-                .requestMatchers(HttpMethod.GET, "/api/sedes").hasAnyRole("ADMIN", "EMPLEADO")
-                .requestMatchers("/api/sedes/**").hasRole("ADMIN")
-                .requestMatchers("/api/empleados/**").hasRole("ADMIN")
-                // Config de cobro — solo ADMIN del club
-                .requestMatchers("/api/config/**").hasRole("ADMIN")
-                // ADMIN o EMPLEADO
-                .requestMatchers("/api/clientes/**").hasAnyRole("ADMIN", "EMPLEADO")
-                .requestMatchers("/api/asistencias/**").hasAnyRole("ADMIN", "EMPLEADO")
+                // ADMIN, EMPLEADO y SUPERADMIN
+                .requestMatchers("/api/finanzas/**").hasAnyRole("ADMIN", "EMPLEADO", "SUPERADMIN")
+                .requestMatchers("/api/sedes/**").hasAnyRole("ADMIN", "EMPLEADO", "SUPERADMIN")
+                .requestMatchers("/api/empleados/**").hasAnyRole("ADMIN", "SUPERADMIN")
+                .requestMatchers("/api/config/**").hasAnyRole("ADMIN", "SUPERADMIN")
+                .requestMatchers("/api/clientes/**").hasAnyRole("ADMIN", "EMPLEADO", "SUPERADMIN")
+                .requestMatchers("/api/asistencias/**").hasAnyRole("ADMIN", "EMPLEADO", "SUPERADMIN")
+                .requestMatchers("/api/registro/**").hasAnyRole("ADMIN", "EMPLEADO", "SUPERADMIN")
+                .requestMatchers("/api/nomina/**").hasAnyRole("ADMIN", "SUPERADMIN")
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
@@ -111,8 +114,11 @@ public class SecurityConfig {
         }
 
         configuration.setAllowCredentials(true);
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
+        // Necesario para que el frontend pueda leer el nombre de archivo real
+        // (xlsx de una sede o zip de varias sedes) desde la respuesta de exportación.
+        configuration.setExposedHeaders(Arrays.asList("Content-Disposition"));
 
         var source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", configuration);
