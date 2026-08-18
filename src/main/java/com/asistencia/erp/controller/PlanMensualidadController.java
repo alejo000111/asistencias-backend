@@ -116,6 +116,7 @@ public class PlanMensualidadController {
         }
 
         PlanMensualidad planAnterior = enrollment.getPlanMensualidad();
+        Sede sedeAnterior = enrollment.getSede();
 
         Object planIdObj = body.get("planMensualidadId");
         if (planIdObj == null) {
@@ -132,7 +133,7 @@ public class PlanMensualidadController {
         // La reconciliación de dinero (si la mensualidad del mes ya se pagó bajo el plan
         // anterior) vive en FinancialService — es la misma lógica que dispara el flujo real de
         // edición de deportista (RegistroController.actualizarDeportista), para no duplicarla.
-        boolean huboReconciliacion = financialService.reconciliarCambioDePlanMensualidad(guardado, planAnterior);
+        boolean huboReconciliacion = financialService.reconciliarCambioDePlanMensualidad(guardado, planAnterior, sedeAnterior);
 
         Map<String, Object> respuesta = new java.util.HashMap<>();
         respuesta.put("enrollment", guardado);
