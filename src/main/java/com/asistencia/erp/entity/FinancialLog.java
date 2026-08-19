@@ -33,30 +33,20 @@ public class FinancialLog {
     @Column(name = "tipo_movimiento", nullable = false)
     private MovementType tipoMovimiento;
 
-    @Column(name = "concepto")
-    private String concepto;
-
     @Column(name = "nombre_cliente_respaldo")
     private String nombreClienteRespaldo;
 
-    /** Detalles de la transacción (opcional) */
-    @Column(name = "detalles", length = 500)
-    private String detalles;
-
-    @Column(name = "club_id")
-    private Long clubId;
-
     @Enumerated(EnumType.STRING)
-    @Column(name = "metodo_pago", nullable = true)
+    @Column(name = "metodo_pago", nullable = false)
     private PaymentMethod metodoPago;
 
     //Tipos de movimientos para auditoría
     public enum MovementType {
-        PAGO_DIRECTO, INGRESO_ABONO, USO_ABONO_CLASE, REVERSION, CARGO_EXTRA
+        PAGO_DIRECTO, INGRESO_ABONO, USO_ABONO_CLASE, REVERSION
     }
 
     //Métodos de pago
     public enum PaymentMethod {
-        EFECTIVO, TRANSFERENCIA, ABONO, WOMPI
+        EFECTIVO, TRANSFERENCIA, ABONO
     }
 }

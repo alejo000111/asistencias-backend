@@ -12,5 +12,4 @@ public class JwtUserPrincipal {
     private String username;
     private String role;
     private List<Long> sedesAutorizadas;
-    private Long clubId;
 }

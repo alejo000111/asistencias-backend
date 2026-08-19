@@ -22,25 +22,20 @@ public class AsistenciaController {
 
     @GetMapping
     public List<Attendance> listarAsistencias() {
-        Long clubId = SecurityUtils.getClubId();
         if (isEmpleado()) {
             List<Long> sedes = getSedesAutorizadas();
             if (sedes.isEmpty()) return List.of();
             // PERF-N1-01: JOIN FETCH incluido en findBySedeIdIn
-            return attendanceRepository.findBySedeIdIn(sedes, clubId);
+            return attendanceRepository.findBySedeIdIn(sedes);
         }
         // PERF-N1-01: findAllWithFetch con JOIN FETCH para sede y student
-        return attendanceRepository.findAllWithFetch(clubId);
+        return attendanceRepository.findAllWithFetch();
     }
 
     @GetMapping("/estudiante/{studentId}")
     public ResponseEntity<?> listarAsistenciasPorEstudiante(@PathVariable Long studentId) {
-        Long clubId = SecurityUtils.getClubId();
         return studentRepository.findById(studentId)
                 .map(student -> {
-                    if (!clubId.equals(student.getClubId())) {
-                         return ResponseEntity.status(403).body("Acceso denegado a este estudiante");
-                    }
                     if (isEmpleado()) {
                         List<Long> sedes = getSedesAutorizadas();
                         if (!SecurityUtils.estudianteEnSede(student, sedes)) {

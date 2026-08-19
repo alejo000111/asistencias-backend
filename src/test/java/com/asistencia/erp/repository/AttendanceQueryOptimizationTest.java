@@ -37,10 +37,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @DataJpaTest
 @TestPropertySource(properties = {
-    "spring.jpa.hibernate.ddl-auto=create-drop",
-    "spring.jpa.database-platform=org.hibernate.dialect.H2Dialect",
-    "spring.jpa.properties.hibernate.format_sql=true",
-    "spring.jpa.properties.hibernate.generate_statistics=true"
+    "spring.jpa.show-sql=true",
+    "spring.jpa.properties.hibernate.format_sql=true"
 })
 class AttendanceQueryOptimizationTest {
 
@@ -53,9 +51,6 @@ class AttendanceQueryOptimizationTest {
     @Autowired
     private SedeRepository sedeRepository;
 
-    @Autowired
-    private ParentRepository parentRepository;
-
     private Sede testSede;
     private Student testStudent;
     private Parent testParent;
@@ -66,7 +61,6 @@ class AttendanceQueryOptimizationTest {
         testSede = new Sede();
         testSede.setNombre("Sede Test N+1");
         testSede.setActiva(true);
-        testSede.setClubId(100L);
         testSede.setGrupos(List.of(
             new GrupoSede("🌱 Iniciación", "🌱", "#059669"),
             new GrupoSede("🔥 Avanzado", "🔥", "#ea580c")
@@ -78,7 +72,6 @@ class AttendanceQueryOptimizationTest {
         testParent.setNombreCompleto("Padre Test N+1");
         testParent.setTelefono("3009998877");
         testParent.setSaldoAbono(BigDecimal.ZERO);
-        testParent.setClubId(100L);
         em.persistAndFlush(testParent);
 
         // Crear estudiante con matrícula
@@ -86,7 +79,6 @@ class AttendanceQueryOptimizationTest {
         testStudent.setNombreCompleto("Estudiante Test N+1");
         testStudent.setParent(testParent);
         testStudent.setEstado(Student.StudentStatus.ACTIVO);
-        testStudent.setClubId(100L);
 
         Enrollment enrollment = new Enrollment();
         enrollment.setStudent(testStudent);
@@ -133,7 +125,7 @@ class AttendanceQueryOptimizationTest {
     @Test
     @DisplayName("PERF-N1-01: findBySedeIdIn carga Sede sin N+1")
     void findBySedeIdInSinNplus1() {
-        List<Attendance> results = attendanceRepository.findBySedeIdIn(List.of(testSede.getId()), null);
+        List<Attendance> results = attendanceRepository.findBySedeIdIn(List.of(testSede.getId()));
         assertThat(results).hasSize(5);
         assertSedeCargadaSinNplus1(results);
     }
@@ -141,7 +133,7 @@ class AttendanceQueryOptimizationTest {
     @Test
     @DisplayName("PERF-N1-01: findAllWithFetch carga Sede sin N+1")
     void findAllWithFetchSinNplus1() {
-        List<Attendance> results = attendanceRepository.findAllWithFetch(null);
+        List<Attendance> results = attendanceRepository.findAllWithFetch();
         assertThat(results).hasSize(5);
         assertSedeCargadaSinNplus1(results);
     }
@@ -158,7 +150,7 @@ class AttendanceQueryOptimizationTest {
     @DisplayName("PERF-N1-01: findUnpaidAttendancesByParentIdFIFO carga Sede sin N+1")
     void findUnpaidAttendancesByParentIdFIFOSinNplus1() {
         List<Attendance> results = attendanceRepository.findUnpaidAttendancesByParentIdFIFO(testParent.getId());
-        assertThat(results).hasSize(2); // 2 impagas de 5 (i=1 y i=3)
+        assertThat(results).hasSize(3); // 3 impagas de 5
         assertSedeCargadaSinNplus1(results);
         // Verificar que solo retorna impagas
         assertThat(results).allMatch(a -> !a.getClasePaga());
@@ -184,7 +176,7 @@ class AttendanceQueryOptimizationTest {
     @DisplayName("PERF-N1-02: findAllWithGrupos carga grupos sin N+1")
     void findAllWithGruposSinNplus1() {
         em.clear();
-        List<Sede> sedes = sedeRepository.findAllWithGrupos(null);
+        List<Sede> sedes = sedeRepository.findAllWithGrupos();
         assertThat(sedes).isNotEmpty();
         for (Sede s : sedes) {
             // Si LEFT JOIN FETCH no funcionó, getGrupos() lanzaría LazyInitializationException
@@ -197,7 +189,7 @@ class AttendanceQueryOptimizationTest {
     @DisplayName("PERF-N1-02: findByIdInWithGrupos carga grupos sin N+1")
     void findByIdInWithGruposSinNplus1() {
         em.clear();
-        List<Sede> sedes = sedeRepository.findByIdInWithGrupos(List.of(testSede.getId()), null);
+        List<Sede> sedes = sedeRepository.findByIdInWithGrupos(List.of(testSede.getId()));
         assertThat(sedes).isNotEmpty();
         for (Sede s : sedes) {
             assertThat(s.getGrupos()).isNotEmpty();
@@ -207,7 +199,7 @@ class AttendanceQueryOptimizationTest {
     @Test
     @DisplayName("PERF-JACKSON-01: existsParentWithAccess ejecuta 1 COUNT query")
     void existsParentWithAccessSingleQuery() {
-        boolean tieneAcceso = parentRepository.existsParentWithAccess(testParent.getId(), List.of(testSede.getId()), 100L);
+        boolean tieneAcceso = parentRepository.existsParentWithAccess(testParent.getId(), List.of(testSede.getId()));
         assertThat(tieneAcceso).isTrue();
     }
 }

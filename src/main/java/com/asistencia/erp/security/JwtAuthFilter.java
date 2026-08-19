@@ -34,16 +34,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 String role = jwtUtil.getRoleFromToken(token);
                 List<Long> sedes = jwtUtil.getSedesFromToken(token);
                 Long userId = jwtUtil.getUserIdFromToken(token);
-                Long clubId = jwtUtil.getClubIdFromToken(token);
 
-                String roleUpper = role != null ? role.toUpperCase() : "";
                 List<SimpleGrantedAuthority> authorities = List.of(
-                        new SimpleGrantedAuthority("ROLE_" + roleUpper),
-                        new SimpleGrantedAuthority(roleUpper)
+                        new SimpleGrantedAuthority("ROLE_" + role)
                 );
 
                 // Crear el principal con los datos del token
-                JwtUserPrincipal principal = new JwtUserPrincipal(userId, username, roleUpper, sedes, clubId);
+                JwtUserPrincipal principal = new JwtUserPrincipal(userId, username, role, sedes);
 
                 UsernamePasswordAuthenticationToken auth =
                         new UsernamePasswordAuthenticationToken(principal, null, authorities);
