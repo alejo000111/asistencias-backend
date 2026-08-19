@@ -17,9 +17,6 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
     /** Lista todos los users con un rol específico, ordenados por username. */
     List<AppUser> findAllByRoleOrderByUsernameAsc(AppUser.Role role);
 
-    /** Empleados cuyo club_id apunta al admin dueño del club (usado para borrado en cascada de un club). */
-    List<AppUser> findByClubId(Long clubId);
-
     /**
      * Cuenta cuántos deportistas ACTIVO tiene un club dado un conjunto de sedes autorizadas.
      * Recibe los IDs de sedes del admin para evitar join inverso no definido.

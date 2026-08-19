@@ -9,15 +9,11 @@ public class ActualizarDeportistaRequest {
     private Integer edad;
     private String fechaNacimiento;
     private String estado;
-    private Boolean adquiereMatricula;
-    private Boolean adquiereSeguro;
     private List<MatriculaDTO> matriculas;
 
     @Data
     public static class MatriculaDTO {
         private Long sedeId;
         private String nivel;
-        private Long planMensualidadId;
-        private Boolean esPrincipal;
     }
 }

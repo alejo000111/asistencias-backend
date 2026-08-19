@@ -10,12 +10,10 @@ import com.asistencia.erp.repository.AttendanceRepository;
 import com.asistencia.erp.repository.EnrollmentRepository;
 import com.asistencia.erp.repository.SedeRepository;
 import com.asistencia.erp.repository.StudentRepository;
-import com.asistencia.erp.security.JwtUserPrincipal;
 import com.asistencia.erp.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
@@ -32,130 +30,59 @@ public class SedeController {
     private final StudentRepository studentRepository;
     private final AttendanceRepository attendanceRepository;
     private final AppUserRepository appUserRepository;
-    private final com.asistencia.erp.repository.EscenarioRepository escenarioRepository;
-
-    /**
-     * Re-resuelve el escenario que vino embebido en el JSON contra la base de datos y
-     * verifica que pertenezca al mismo club. Devuelve null si todo está bien, o la
-     * respuesta de error a retornar.
-     */
-    private ResponseEntity<?> resolverEscenario(Sede sede, Long clubId) {
-        if (sede.getEscenario() == null || sede.getEscenario().getId() == null) {
-            sede.setEscenario(null);
-            return null;
-        }
-        var escenario = escenarioRepository.findById(sede.getEscenario().getId()).orElse(null);
-        if (escenario == null || !escenario.getClubId().equals(clubId)) {
-            return ResponseEntity.badRequest().body(java.util.Map.of("error", "El escenario indicado no existe en este club."));
-        }
-        sede.setEscenario(escenario);
-        return null;
-    }
 
     @GetMapping
     @Transactional(readOnly = true)
     public List<Sede> listarSedes() {
         try {
-            Long clubId = SecurityUtils.getClubId();
             if (SecurityUtils.isAdmin()) {
-                return sedeRepository.findAllWithGrupos(clubId);
+                return sedeRepository.findAll();
             }
             List<Long> idsPermitidos = SecurityUtils.getSedesAutorizadas();
             if (idsPermitidos == null || idsPermitidos.isEmpty()) {
-                return List.of(); // Return empty if no sedes authorized
+                return sedeRepository.findAll();
             }
-            return sedeRepository.findByIdInWithGrupos(idsPermitidos, clubId);
+            return sedeRepository.findAllById(idsPermitidos);
         } catch (Exception e) {
             log.error("Error al listar sedes: {}", e.getMessage(), e);
-            return List.of();
+            return sedeRepository.findAll();
         }
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping
     public ResponseEntity<?> crearSede(@RequestBody Sede sede) {
         if (sede.getNombre() == null || sede.getNombre().isBlank()) {
-            return ResponseEntity.badRequest().body(java.util.Map.of("error", "El nombre de la sede es obligatorio"));
+            return ResponseEntity.badRequest().body("El nombre de la sede es obligatorio");
         }
-        
-        Long clubId = SecurityUtils.getClubId();
-        String nombreTrimmed = sede.getNombre().trim();
-        if (sedeRepository.findByNombreAndClubId(nombreTrimmed, clubId).isPresent()) {
-            return ResponseEntity.badRequest().body(java.util.Map.of("error", "Ya existe una sede con el nombre '" + nombreTrimmed + "' en este club."));
-        }
-        
         if (sede.getGrupos() == null) {
             sede.setGrupos(new java.util.ArrayList<>());
         }
         if (sede.getActiva() == null) {
             sede.setActiva(true);
         }
-        
-        sede.setNombre(nombreTrimmed);
-        sede.setClubId(clubId);
-
-        // El escenario llega embebido en el JSON; se re-resuelve contra la BD para
-        // no confiar en el objeto del cliente y para verificar que sea del mismo club.
-        ResponseEntity<?> errorEscenario = resolverEscenario(sede, clubId);
-        if (errorEscenario != null) return errorEscenario;
-
         Sede saved = sedeRepository.save(sede);
-        
-        // Asignar sede al ADMIN creador
-        JwtUserPrincipal user = SecurityUtils.getCurrentUser();
-        if (user != null && "ADMIN".equals(user.getRole())) {
-            appUserRepository.findById(user.getUserId()).ifPresent(adminUser -> {
-                adminUser.getSedesAutorizadas().add(saved);
-                appUserRepository.save(adminUser);
-            });
-        }
-        
         return ResponseEntity.ok(saved);
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
     @Transactional
     @PutMapping("/{id}")
     public ResponseEntity<?> actualizarSede(@PathVariable Long id, @RequestBody Sede sede) {
         return sedeRepository.findById(id)
                 .map(existing -> {
-                    Long clubIdActual = SecurityUtils.getClubId();
-                    if (existing.getClubId() == null || !existing.getClubId().equals(clubIdActual)) {
-                        return ResponseEntity.status(403).body(java.util.Map.of("error", "Acceso denegado a esta sede"));
-                    }
-                    if (sede.getNombre() == null || sede.getNombre().isBlank()) {
-                        return ResponseEntity.badRequest().body(java.util.Map.of("error", "El nombre de la sede es obligatorio"));
-                    }
-                    String nombreTrimmed = sede.getNombre().trim();
-                    if (!nombreTrimmed.equalsIgnoreCase(existing.getNombre())) {
-                        Long clubId = SecurityUtils.getClubId();
-                        if (sedeRepository.findByNombreAndClubId(nombreTrimmed, clubId).isPresent()) {
-                            return ResponseEntity.badRequest().body(java.util.Map.of("error", "Ya existe una sede con el nombre '" + nombreTrimmed + "' en este club."));
-                        }
-                    }
-
                     List<com.asistencia.erp.entity.GrupoSede> oldGrupos = new java.util.ArrayList<>(existing.getGrupos() != null ? existing.getGrupos() : List.of());
 
-                    existing.setNombre(nombreTrimmed);
+                    existing.setNombre(sede.getNombre());
                     existing.setActiva(sede.getActiva() != null ? sede.getActiva() : existing.getActiva());
                     existing.setGrupos(sede.getGrupos() != null ? sede.getGrupos() : new java.util.ArrayList<>());
 
-                    // El escenario se copia explícitamente: sin esto se descartaría en silencio.
-                    existing.setEscenario(sede.getEscenario());
-                    ResponseEntity<?> errorEscenario = resolverEscenario(existing, clubIdActual);
-                    if (errorEscenario != null) return errorEscenario;
-
                     Sede saved = sedeRepository.save(existing);
 
-                    // Sincronizar las matrículas y asistencias de deportistas si cambiaron los nombres o emojis de los grupos
+                    // Sincronizar las matrículas de deportistas si cambiaron los nombres o emojis de los grupos
                     List<com.asistencia.erp.entity.GrupoSede> newGrupos = saved.getGrupos();
                     List<Enrollment> enrollments = enrollmentRepository.findBySedeId(id);
-                    List<Attendance> attendances = attendanceRepository.findBySedeId(id);
 
-                    if ((!enrollments.isEmpty() || !attendances.isEmpty()) && !newGrupos.isEmpty()) {
-                        boolean modifiedEnrollments = false;
-                        boolean modifiedAttendances = false;
-                        
+                    if (!enrollments.isEmpty() && !newGrupos.isEmpty()) {
+                        boolean modified = false;
                         for (int i = 0; i < Math.min(oldGrupos.size(), newGrupos.size()); i++) {
                             com.asistencia.erp.entity.GrupoSede oldG = oldGrupos.get(i);
                             com.asistencia.erp.entity.GrupoSede newG = newGrupos.get(i);
@@ -177,34 +104,14 @@ public class SedeController {
                                             || currentNivel.endsWith(newNameOnly)) {
                                         if (!currentNivel.equals(newFormatted)) {
                                             e.setNivel(newFormatted);
-                                            modifiedEnrollments = true;
-                                        }
-                                    }
-                                }
-                            }
-
-                            for (Attendance a : attendances) {
-                                if (a.getNivel() != null) {
-                                    String currentNivel = a.getNivel().trim();
-                                    // Coincide con nombre solo, con formato previo o por sufijo de grupo
-                                    if (currentNivel.equalsIgnoreCase(oldNameOnly)
-                                            || currentNivel.equalsIgnoreCase(oldFormatted)
-                                            || currentNivel.equalsIgnoreCase(newNameOnly)
-                                            || currentNivel.endsWith(oldNameOnly)
-                                            || currentNivel.endsWith(newNameOnly)) {
-                                        if (!currentNivel.equals(newFormatted)) {
-                                            a.setNivel(newFormatted);
-                                            modifiedAttendances = true;
+                                            modified = true;
                                         }
                                     }
                                 }
                             }
                         }
-                        if (modifiedEnrollments) {
+                        if (modified) {
                             enrollmentRepository.saveAll(enrollments);
-                        }
-                        if (modifiedAttendances) {
-                            attendanceRepository.saveAll(attendances);
                         }
                     }
 
@@ -213,17 +120,12 @@ public class SedeController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
     @Transactional
     @DeleteMapping("/{id}")
     public ResponseEntity<?> eliminarSede(@PathVariable Long id) {
         try {
             return sedeRepository.findById(id)
                     .map(sede -> {
-                        Long clubIdActual = SecurityUtils.getClubId();
-                        if (sede.getClubId() == null || !sede.getClubId().equals(clubIdActual)) {
-                            return ResponseEntity.status(403).body("Acceso denegado a esta sede");
-                        }
                         if (Boolean.TRUE.equals(sede.getActiva())) {
                             // 1. Si la sede está activa: DESACTIVAR (Preserva las matrículas en la BD para cuando se reactive)
                             sede.setActiva(false);
