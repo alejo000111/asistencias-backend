@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.LocalDate;
 
 /**
  * Filtro de bloqueo granular por mora (FASE 2 — SUSPENDIDO_POR_MORA).
@@ -24,11 +25,20 @@ import java.io.IOException;
  *   ✅ PERMITE → GET  /**                        (consultas de solo lectura)
  *   ✅ PERMITE → /api/auth/**                    (login/logout)
  *   ✅ PERMITE → /api/public/**                  (portal padres)
+ *   ✅ PERMITE → /api/superadmin/**              (el SUPERADMIN siempre puede gestionar/reactivar el club)
  *   ❌ BLOQUEA → POST/PUT/DELETE /api/finanzas/abono
  *   ❌ BLOQUEA → POST/PUT/DELETE /api/clientes/**
  *   ❌ BLOQUEA → POST/PUT/DELETE /api/registro/**
  *   ❌ BLOQUEA → POST/PUT/DELETE /api/sedes/**
  *   ❌ BLOQUEA → POST/PUT/DELETE /api/empleados/**
+ *   ❌ BLOQUEA → POST/PUT/DELETE /api/planes/**       (Planes de Mensualidad)
+ *   ❌ BLOQUEA → POST/PUT/DELETE /api/complementos/** (Complementos)
+ *   ❌ BLOQUEA → POST/PUT/DELETE /api/escenarios/**   (Escenarios)
+ *   ❌ BLOQUEA → POST/PUT/DELETE /api/config/**       (tarifas, esquema de cobro, llaves de Wompi)
+ *
+ * Nota: un club en mora sí puede seguir cobrando cuotas nuevas a sus propios padres (vía
+ * asistencia), pero deliberadamente no puede tocar SU configuración de precios/pagos mientras
+ * esté suspendido — evita que reconfigure tarifas o llaves de Wompi antes de regularizar.
  */
 @Component
 @RequiredArgsConstructor
@@ -69,6 +79,21 @@ public class SuspensionFilter extends OncePerRequestFilter {
         // Si el rol es EMPLEADO, buscar el admin dueño del club (por sedes compartidas)
         AppUser clubAdmin = resolverAdminDelClub(user, principal);
 
+        // Chequeo en caliente: si la fechaCorte ya venció y el club sigue marcado ACTIVO,
+        // se suspende inmediatamente aquí mismo (sin esperar al barrido programado de
+        // SuperAdminService), para que el bloqueo sea efectivo desde el primer request
+        // del día en que se cumple el plazo. Los clubs exentos (sin fechaCorte) nunca entran aquí.
+        if (clubAdmin != null &&
+            clubAdmin.getClubEstado() == AppUser.ClubEstado.ACTIVO &&
+            !Boolean.TRUE.equals(clubAdmin.getExentoTarifa()) &&
+            clubAdmin.getFechaCorte() != null &&
+            clubAdmin.getFechaCorte().isBefore(LocalDate.now())) {
+            clubAdmin.setClubEstado(AppUser.ClubEstado.SUSPENDIDO_POR_MORA);
+            clubAdmin = appUserRepository.save(clubAdmin);
+            log.warn("Club auto-suspendido en caliente por fechaCorte vencida — adminId={}, fechaCorte={}",
+                    clubAdmin.getId(), clubAdmin.getFechaCorte());
+        }
+
         if (clubAdmin != null &&
             AppUser.ClubEstado.SUSPENDIDO_POR_MORA.equals(clubAdmin.getClubEstado())) {
 
@@ -84,9 +109,8 @@ public class SuspensionFilter extends OncePerRequestFilter {
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             response.setContentType("application/json;charset=UTF-8");
             response.getWriter().write(
-                "{\"error\":\"Club suspendido por mora\",\"mensaje\":" +
-                "\"Tu club está suspendido por falta de pago. Solo puedes registrar asistencias. " +
-                "Contacta a soporte para regularizar el pago.\"}"
+                "{\"error\":\"Plazo vencido\",\"mensaje\":" +
+                "\"Tu club está suspendido por plazo vencido. Por favor contacta a Alejandro para regularizar el pago y reactivar tu cuenta. Puedes seguir registrando asistencias y consultando la información normalmente.\"}"
             );
             return;
         }
@@ -107,26 +131,43 @@ public class SuspensionFilter extends OncePerRequestFilter {
             return false;
         }
 
-        // Rutas que siempre pasan sin importar el estado (auth, portal público)
-        if (path.startsWith("/api/auth/") || path.startsWith("/api/public/")) {
+        // Rutas que siempre pasan sin importar el estado de mora
+        if (path.startsWith("/api/auth/") ||
+            path.startsWith("/api/public/") ||
+            path.startsWith("/api/superadmin/")) {
             return false;
         }
 
-        // Rutas de mutación financiera o de datos
+        // Mutaciones financieras/administrativas restringidas estrictamente en mora
+        // (ver cabecera de la clase para el listado completo de rutas bloqueadas).
+        // El registro de asistencias/cortesías se excluye explícitamente más abajo vía esRegistroDeAsistencia().
+        // /api/config/** se incluyó aquí (antes exento por completo): un club suspendido no debe
+        // poder reescribir tarifas, esquema de cobro ni llaves de Wompi mientras esté en mora.
+        // /api/planes, /api/complementos y /api/escenarios también afectan directamente lo que se
+        // le cobra a los padres y habían quedado fuera del bloqueo original por omisión.
         return path.startsWith("/api/finanzas/") ||
                path.startsWith("/api/clientes/") ||
                path.startsWith("/api/registro/") ||
                path.startsWith("/api/sedes/") ||
-               path.startsWith("/api/empleados/");
+               path.startsWith("/api/empleados/") ||
+               path.startsWith("/api/planes/") ||
+               path.startsWith("/api/complementos/") ||
+               path.startsWith("/api/escenarios/") ||
+               path.startsWith("/api/config/");
     }
 
     /**
-     * Identifica si la petición es específicamente un registro de asistencia.
-     * Esta operación está PERMITIDA incluso en estado suspendido.
+     * Identifica si la petición es específicamente un registro de asistencia o cortesía.
+     * Ambas operaciones están PERMITIDAS incluso en estado suspendido (operativa de campo).
      */
     private boolean esRegistroDeAsistencia(HttpServletRequest request) {
-        return "POST".equalsIgnoreCase(request.getMethod()) &&
-               request.getRequestURI().equals("/api/finanzas/asistencia");
+        String method = request.getMethod();
+        String uri = request.getRequestURI();
+        if (!"POST".equalsIgnoreCase(method)) return false;
+        // Asistencia regular: POST /api/finanzas/asistencia
+        // Clase de cortesía: POST /api/finanzas/cortesia (NO /cortesia/{id}/convertir)
+        return uri.startsWith("/api/finanzas/asistencia")
+                || (uri.startsWith("/api/finanzas/cortesia") && !uri.contains("/convertir"));
     }
 
     /**

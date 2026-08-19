@@ -1,5 +1,11 @@
 # Asistencias - Guía Rápida Actualizada
 
+## ☕ Requisito de Versión de Java (Java 21 LTS)
+
+Este proyecto está **estrictamente configurado para usar Java 21 (LTS)** tanto para desarrollo local como para despliegue en Docker.
+- **Maven Enforcer Plugin**: Si intentas compilar o ejecutar pruebas con una versión diferente de JDK (por ejemplo, Java 25 o Java 17), la construcción de Maven fallará inmediatamente.
+- **Docker**: El archivo `Dockerfile` utiliza las imágenes oficiales `eclipse-temurin:21` asegurando consistencia total con el entorno de desarrollo.
+
 ## 📥 Importación de Excel
 
 - **Formato de columnas**:

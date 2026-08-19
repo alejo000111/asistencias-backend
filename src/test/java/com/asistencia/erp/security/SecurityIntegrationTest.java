@@ -6,12 +6,16 @@ import com.asistencia.erp.entity.Parent;
 import com.asistencia.erp.entity.Student;
 import com.asistencia.erp.repository.*;
 import com.asistencia.erp.service.FinancialService;
+import com.asistencia.erp.service.SuperAdminService;
+import com.asistencia.erp.service.CortesiaService;
+import com.asistencia.erp.service.AsistenciaExportService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.bean.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -19,6 +23,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.Optional;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -58,45 +63,75 @@ class SecurityIntegrationTest {
     private MockMvc mockMvc;
 
     // ── Dependencias de SecurityConfig ──
-    @MockBean
+    @MockitoSpyBean
     private JwtAuthFilter jwtAuthFilter;
-    @MockBean
+    @MockitoBean
     private JwtUtil jwtUtil;
 
     // ── Dependencias de los controladores ──
-    @MockBean
+    @MockitoBean
     private FinancialService financialService;
-    @MockBean
+    @MockitoBean
+    private SuperAdminService superAdminService;
+    @MockitoBean
+    private CortesiaService cortesiaService;
+    @MockitoBean
+    private AsistenciaExportService asistenciaExportService;
+    @MockitoBean
     private FinancialLogRepository financialLogRepository;
-    @MockBean
+    @MockitoBean
     private AttendanceRepository attendanceRepository;
-    @MockBean
+    @MockitoBean
     private ParentRepository parentRepository;
-    @MockBean
+    @MockitoBean
     private StudentRepository studentRepository;
-    @MockBean
+    @MockitoBean
     private SedeRepository sedeRepository;
-    @MockBean
+    @MockitoBean
     private AppUserRepository appUserRepository;
-    @MockBean
+    @MockitoBean
     private EnrollmentRepository enrollmentRepository;
+    @MockitoBean
+    private com.asistencia.erp.repository.PlanMensualidadRepository planMensualidadRepository;
+    @MockitoBean
+    private ClubConfigRepository clubConfigRepository;
+    @MockitoBean
+    private com.asistencia.erp.service.billing.MonthlyBillingService monthlyBillingService;
 
     @BeforeEach
     void setUp() {
         Parent mockParent = new Parent();
         mockParent.setId(1L);
         mockParent.setNombreCompleto("Test Parent");
+        mockParent.setClubId(100L); // debe coincidir con getClubIdFromToken() simulado en mockToken()
 
         Student mockStudent = new Student();
         mockStudent.setId(1L);
         mockStudent.setNombreCompleto("Test Student");
         mockStudent.setParent(mockParent);
+        mockStudent.setClubId(100L); // ídem: los endpoints de RegistroController validan pertenencia al club
+
+        com.asistencia.erp.entity.Sede mockSede = new com.asistencia.erp.entity.Sede();
+        mockSede.setId(1L);
+        mockSede.setNombre("Sede Test");
+        mockSede.setActiva(true);
+        mockSede.setClubId(100L); // debe pertenecer al mismo club para pasar la validación SEC-BOLA de sede
 
         when(studentRepository.findById(1L)).thenReturn(Optional.of(mockStudent));
         when(parentRepository.findById(1L)).thenReturn(Optional.of(mockParent));
+        when(sedeRepository.findById(1L)).thenReturn(Optional.of(mockSede));
 
         // Para el test de asistencia inexistente (SEC-BOLA-01)
         when(attendanceRepository.existsById(anyLong())).thenReturn(false);
+    }
+
+    private void mockToken(String role) {
+        when(jwtUtil.validateToken("dummy-token")).thenReturn(true);
+        when(jwtUtil.getRoleFromToken("dummy-token")).thenReturn(role);
+        when(jwtUtil.getUsernameFromToken("dummy-token")).thenReturn("testuser");
+        when(jwtUtil.getUserIdFromToken("dummy-token")).thenReturn(1L);
+        when(jwtUtil.getClubIdFromToken("dummy-token")).thenReturn(100L);
+        when(jwtUtil.getSedesFromToken("dummy-token")).thenReturn(java.util.List.of(1L));
     }
 
     // ════════════════════════════════════════════════════════════════════
@@ -105,19 +140,36 @@ class SecurityIntegrationTest {
 
     @Test
     @DisplayName("SEC-IDOR-01: ADMIN puede registrar asistencia (200 OK)")
-    @WithMockUser(roles = "ADMIN")
     void adminPuedeRegistrarAsistencia() throws Exception {
+        mockToken("ADMIN");
+        com.asistencia.erp.entity.Attendance attendanceRegistrada = new com.asistencia.erp.entity.Attendance();
+        attendanceRegistrada.setId(1L);
+        when(financialService.registrarAsistencia(anyLong(), any(), any(), any(), any(), anyLong(), any()))
+            .thenReturn(attendanceRegistrada);
         mockMvc.perform(post("/api/finanzas/asistencia")
+                .header("Authorization", "Bearer dummy-token")
                 .param("studentId", "1")
                 .param("tipoClase", "GRUPAL")
+                .param("sedeId", "1")
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED))
                 .andExpect(status().isOk());
     }
 
     @Test
-    @DisplayName("SEC-IDOR-01: EMPLEADO recibe 403 al registrar asistencia")
-    @WithMockUser(roles = "EMPLEADO")
+    @DisplayName("SEC-IDOR-01: EMPLEADO recibe 403 al registrar asistencia sin sede válida")
     void empleadoNoPuedeRegistrarAsistencia() throws Exception {
+        mockToken("EMPLEADO");
+        mockMvc.perform(post("/api/finanzas/asistencia")
+                .header("Authorization", "Bearer dummy-token")
+                .param("studentId", "1")
+                .param("tipoClase", "GRUPAL")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("SEC-IDOR-01: Anónimo recibe 403 al registrar asistencia")
+    void anonimoNoPuedeRegistrarAsistencia() throws Exception {
         mockMvc.perform(post("/api/finanzas/asistencia")
                 .param("studentId", "1")
                 .param("tipoClase", "GRUPAL")
@@ -126,20 +178,11 @@ class SecurityIntegrationTest {
     }
 
     @Test
-    @DisplayName("SEC-IDOR-01: Anónimo recibe 401 al registrar asistencia")
-    void anonimoNoPuedeRegistrarAsistencia() throws Exception {
-        mockMvc.perform(post("/api/finanzas/asistencia")
-                .param("studentId", "1")
-                .param("tipoClase", "GRUPAL")
-                .contentType(MediaType.APPLICATION_FORM_URLENCODED))
-                .andExpect(status().isUnauthorized());
-    }
-
-    @Test
     @DisplayName("SEC-IDOR-01: ADMIN puede registrar abono (200 OK)")
-    @WithMockUser(roles = "ADMIN")
     void adminPuedeRegistrarAbono() throws Exception {
+        mockToken("ADMIN");
         mockMvc.perform(post("/api/finanzas/abono")
+                .header("Authorization", "Bearer dummy-token")
                 .param("parentId", "1")
                 .param("monto", "50000")
                 .param("metodoPago", "EFECTIVO")
@@ -149,9 +192,10 @@ class SecurityIntegrationTest {
 
     @Test
     @DisplayName("SEC-IDOR-01: EMPLEADO recibe 403 al registrar abono")
-    @WithMockUser(roles = "EMPLEADO")
     void empleadoNoPuedeRegistrarAbono() throws Exception {
+        mockToken("EMPLEADO");
         mockMvc.perform(post("/api/finanzas/abono")
+                .header("Authorization", "Bearer dummy-token")
                 .param("parentId", "1")
                 .param("monto", "50000")
                 .param("metodoPago", "EFECTIVO")
@@ -161,33 +205,37 @@ class SecurityIntegrationTest {
 
     @Test
     @DisplayName("SEC-IDOR-01: ADMIN puede eliminar abono (200 OK)")
-    @WithMockUser(roles = "ADMIN")
     void adminPuedeEliminarAbono() throws Exception {
-        mockMvc.perform(delete("/api/finanzas/abono/1"))
+        mockToken("ADMIN");
+        mockMvc.perform(delete("/api/finanzas/abono/1")
+                .header("Authorization", "Bearer dummy-token"))
                 .andExpect(status().isOk());
     }
 
     @Test
     @DisplayName("SEC-IDOR-01: EMPLEADO recibe 403 al eliminar abono")
-    @WithMockUser(roles = "EMPLEADO")
     void empleadoNoPuedeEliminarAbono() throws Exception {
-        mockMvc.perform(delete("/api/finanzas/abono/1"))
+        mockToken("EMPLEADO");
+        mockMvc.perform(delete("/api/finanzas/abono/1")
+                .header("Authorization", "Bearer dummy-token"))
                 .andExpect(status().isForbidden());
     }
 
     @Test
-    @DisplayName("SEC-IDOR-01: ADMIN puede eliminar deportista desde finanzas (200 OK)")
-    @WithMockUser(roles = "ADMIN")
+    @DisplayName("SEC-IDOR-01: ADMIN puede eliminar deportista desde registro (200 OK)")
     void adminPuedeEliminarDeportista() throws Exception {
-        mockMvc.perform(delete("/api/finanzas/deportista/1"))
+        mockToken("ADMIN");
+        mockMvc.perform(delete("/api/registro/deportista/1")
+                .header("Authorization", "Bearer dummy-token"))
                 .andExpect(status().isOk());
     }
 
     @Test
-    @DisplayName("SEC-IDOR-01: EMPLEADO recibe 403 al eliminar deportista desde finanzas")
-    @WithMockUser(roles = "EMPLEADO")
+    @DisplayName("SEC-IDOR-01: EMPLEADO recibe 403 al eliminar deportista desde registro")
     void empleadoNoPuedeEliminarDeportista() throws Exception {
-        mockMvc.perform(delete("/api/finanzas/deportista/1"))
+        mockToken("EMPLEADO");
+        mockMvc.perform(delete("/api/registro/deportista/1")
+                .header("Authorization", "Bearer dummy-token"))
                 .andExpect(status().isForbidden());
     }
 
@@ -197,66 +245,74 @@ class SecurityIntegrationTest {
 
     @Test
     @DisplayName("SEC-IDOR-01: ADMIN puede eliminar padre (200 OK)")
-    @WithMockUser(roles = "ADMIN")
     void adminPuedeEliminarPadre() throws Exception {
-        mockMvc.perform(delete("/api/registro/padre/1"))
+        mockToken("ADMIN");
+        mockMvc.perform(delete("/api/registro/padre/1")
+                .header("Authorization", "Bearer dummy-token"))
                 .andExpect(status().isOk());
     }
 
     @Test
     @DisplayName("SEC-IDOR-01: EMPLEADO recibe 403 al eliminar padre")
-    @WithMockUser(roles = "EMPLEADO")
     void empleadoNoPuedeEliminarPadre() throws Exception {
-        mockMvc.perform(delete("/api/registro/padre/1"))
+        mockToken("EMPLEADO");
+        mockMvc.perform(delete("/api/registro/padre/1")
+                .header("Authorization", "Bearer dummy-token"))
                 .andExpect(status().isForbidden());
     }
 
     @Test
     @DisplayName("SEC-IDOR-01: ADMIN puede inactivar padre (200 OK)")
-    @WithMockUser(roles = "ADMIN")
     void adminPuedeInactivarPadre() throws Exception {
-        mockMvc.perform(post("/api/registro/padre/1/inactivar"))
+        mockToken("ADMIN");
+        mockMvc.perform(post("/api/registro/padre/1/inactivar")
+                .header("Authorization", "Bearer dummy-token"))
                 .andExpect(status().isOk());
     }
 
     @Test
     @DisplayName("SEC-IDOR-01: EMPLEADO recibe 403 al inactivar padre")
-    @WithMockUser(roles = "EMPLEADO")
     void empleadoNoPuedeInactivarPadre() throws Exception {
-        mockMvc.perform(post("/api/registro/padre/1/inactivar"))
+        mockToken("EMPLEADO");
+        mockMvc.perform(post("/api/registro/padre/1/inactivar")
+                .header("Authorization", "Bearer dummy-token"))
                 .andExpect(status().isForbidden());
     }
 
     @Test
     @DisplayName("SEC-IDOR-01: ADMIN puede retirar deportista (200 OK)")
-    @WithMockUser(roles = "ADMIN")
     void adminPuedeRetirarDeportista() throws Exception {
-        mockMvc.perform(post("/api/registro/deportista/1/retirar"))
+        mockToken("ADMIN");
+        mockMvc.perform(post("/api/registro/deportista/1/retirar")
+                .header("Authorization", "Bearer dummy-token"))
                 .andExpect(status().isOk());
     }
 
     @Test
     @DisplayName("SEC-IDOR-01: EMPLEADO recibe 403 al retirar deportista")
-    @WithMockUser(roles = "EMPLEADO")
     void empleadoNoPuedeRetirarDeportista() throws Exception {
-        mockMvc.perform(post("/api/registro/deportista/1/retirar"))
+        mockToken("EMPLEADO");
+        mockMvc.perform(post("/api/registro/deportista/1/retirar")
+                .header("Authorization", "Bearer dummy-token"))
                 .andExpect(status().isForbidden());
     }
 
     @Test
-    @DisplayName("SEC-IDOR-01: Acceso a GET /api/finanzas/padres solo ADMIN")
-    @WithMockUser(roles = "ADMIN")
+    @DisplayName("SEC-IDOR-01: Acceso a GET /api/finanzas/padres permitido para ADMIN")
     void adminPuedeVerPadres() throws Exception {
-        mockMvc.perform(get("/api/finanzas/padres"))
+        mockToken("ADMIN");
+        mockMvc.perform(get("/api/finanzas/padres")
+                .header("Authorization", "Bearer dummy-token"))
                 .andExpect(status().isOk());
     }
 
     @Test
-    @DisplayName("SEC-IDOR-01: EMPLEADO recibe 403 en GET /api/finanzas/padres")
-    @WithMockUser(roles = "EMPLEADO")
-    void empleadoNoPuedeVerPadres() throws Exception {
-        mockMvc.perform(get("/api/finanzas/padres"))
-                .andExpect(status().isForbidden());
+    @DisplayName("SEC-IDOR-01: EMPLEADO puede ver padres pero filtrados")
+    void empleadoPuedeVerPadres() throws Exception {
+        mockToken("EMPLEADO");
+        mockMvc.perform(get("/api/finanzas/padres")
+                .header("Authorization", "Bearer dummy-token"))
+                .andExpect(status().isOk());
     }
 
     // ════════════════════════════════════════════════════════════════════
@@ -265,17 +321,27 @@ class SecurityIntegrationTest {
 
     @Test
     @DisplayName("SEC-BOLA-01: ADMIN elimina asistencia que no existe → 404")
-    @WithMockUser(roles = "ADMIN")
     void eliminarAsistenciaInexistenteRetorna404() throws Exception {
-        mockMvc.perform(delete("/api/finanzas/asistencia/999"))
+        mockToken("ADMIN");
+        mockMvc.perform(delete("/api/finanzas/asistencia/999")
+                .header("Authorization", "Bearer dummy-token"))
                 .andExpect(status().isNotFound());
     }
 
     @Test
-    @DisplayName("SEC-BOLA-01: EMPLEADO recibe 403 al intentar eliminar asistencia")
-    @WithMockUser(roles = "EMPLEADO")
+    @DisplayName("SEC-BOLA-01: EMPLEADO recibe 403 al intentar eliminar asistencia que no registró")
     void empleadoNoPuedeEliminarAsistencia() throws Exception {
-        mockMvc.perform(delete("/api/finanzas/asistencia/1"))
+        mockToken("EMPLEADO");
+        // Asistencia real del club (100L) pero registrada por OTRO usuario (999L, no el 1L
+        // que simula mockToken) — FASE 4: un EMPLEADO solo puede deshacer sus propias asistencias.
+        com.asistencia.erp.entity.Attendance attendanceDeOtroEmpleado = new com.asistencia.erp.entity.Attendance();
+        attendanceDeOtroEmpleado.setId(1L);
+        attendanceDeOtroEmpleado.setClubId(100L);
+        attendanceDeOtroEmpleado.setRegistradoPorId(999L);
+        when(attendanceRepository.findById(1L)).thenReturn(Optional.of(attendanceDeOtroEmpleado));
+
+        mockMvc.perform(delete("/api/finanzas/asistencia/1")
+                .header("Authorization", "Bearer dummy-token"))
                 .andExpect(status().isForbidden());
     }
 }

@@ -12,5 +12,7 @@ public class RegistrarDeportistaRequest {
     private String apellido;
     private Integer edad;
     private String fechaNacimiento;
+    private Boolean adquiereMatricula;
+    private Boolean adquiereSeguro;
     private List<ActualizarDeportistaRequest.MatriculaDTO> matriculas;
 }

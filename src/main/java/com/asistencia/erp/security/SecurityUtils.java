@@ -20,12 +20,12 @@ public class SecurityUtils {
 
     public static boolean isEmpleado() {
         JwtUserPrincipal user = getCurrentUser();
-        return user != null && "EMPLEADO".equals(user.getRole());
+        return user != null && "EMPLEADO".equalsIgnoreCase(user.getRole());
     }
 
     public static boolean isAdmin() {
         JwtUserPrincipal user = getCurrentUser();
-        return user != null && "ADMIN".equals(user.getRole());
+        return user != null && ("ADMIN".equalsIgnoreCase(user.getRole()) || "SUPERADMIN".equalsIgnoreCase(user.getRole()));
     }
 
     public static List<Long> getSedesAutorizadas() {
@@ -34,6 +34,11 @@ public class SecurityUtils {
             return user.getSedesAutorizadas();
         }
         return Collections.emptyList();
+    }
+
+    public static Long getClubId() {
+        JwtUserPrincipal user = getCurrentUser();
+        return user != null ? user.getClubId() : null;
     }
 
     /**
